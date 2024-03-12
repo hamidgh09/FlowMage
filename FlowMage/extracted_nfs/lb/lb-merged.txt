@@ -1,0 +1,1875 @@
+/*** lb.h ***/
+
+
+
+
+
+#ifndef LB_PLUGIN_LB_LB_H_
+#define LB_PLUGIN_LB_LB_H_
+
+#include <lb/util.h>
+#include <vnet/util/refcount.h>
+
+#include <vnet/vnet.h>
+#include <vnet/ip/ip.h>
+#include <vnet/dpo/dpo.h>
+#include <vnet/fib/fib_table.h>
+#include <vppinfra/hash.h>
+#include <vppinfra/bihash_8_8.h>
+#include <vppinfra/bihash_24_8.h>
+#include <lb/lbhash.h>
+#include <vppinfra/lock.h>
+
+#define LB_DEFAULT_PER_CPU_STICKY_BUCKETS 1 << 10
+#define LB_DEFAULT_FLOW_TIMEOUT 40
+#define LB_MAPPING_BUCKETS  1024
+#define LB_MAPPING_MEMORY_SIZE  64<<20
+
+#define LB_VIP_PER_PORT_BUCKETS  1024
+#define LB_VIP_PER_PORT_MEMORY_SIZE  64<<20
+
+typedef enum {
+  LB_NEXT_DROP,
+  LB_N_NEXT,
+} lb_next_t;
+
+typedef enum {
+  LB_NAT4_IN2OUT_NEXT_DROP,
+  LB_NAT4_IN2OUT_NEXT_LOOKUP,
+  LB_NAT4_IN2OUT_N_NEXT,
+} LB_nat4_in2out_next_t;
+
+typedef enum {
+  LB_NAT6_IN2OUT_NEXT_DROP,
+  LB_NAT6_IN2OUT_NEXT_LOOKUP,
+  LB_NAT6_IN2OUT_N_NEXT,
+} LB_nat6_in2out_next_t;
+
+#define foreach_lb_nat_in2out_error                       \
+_(UNSUPPORTED_PROTOCOL, )         \
+_(IN2OUT_PACKETS, )      \
+_(NO_TRANSLATION, )
+
+typedef enum {
+#define _(sym,str) LB_NAT_IN2OUT_ERROR_##sym,
+  foreach_lb_nat_in2out_error
+#undef _
+  LB_NAT_IN2OUT_N_ERROR,
+} lb_nat_in2out_error_t;
+
+
+typedef enum {
+  LB_SRV_TYPE_CLUSTERIP,
+  LB_SRV_TYPE_NODEPORT,
+  LB_SRV_N_TYPES,
+} lb_svr_type_t;
+
+typedef enum {
+  LB4_NODEPORT_NEXT_IP4_NAT4,
+  LB4_NODEPORT_NEXT_DROP,
+  LB4_NODEPORT_N_NEXT,
+} lb4_nodeport_next_t;
+
+typedef enum {
+  LB6_NODEPORT_NEXT_IP6_NAT6,
+  LB6_NODEPORT_NEXT_DROP,
+  LB6_NODEPORT_N_NEXT,
+} lb6_nodeport_next_t;
+
+
+typedef struct {
+  
+  fib_node_t fib_node;
+
+  
+  ip46_address_t address;
+
+  
+  u32 vip_index;
+
+  
+  u8 flags;
+
+#define LB_AS_FLAGS_USED 0x1
+
+  
+  u32 last_used;
+
+  
+  fib_node_index_t next_hop_fib_entry_index;
+
+  
+  u32 next_hop_child_index;
+
+  
+  dpo_id_t dpo;
+
+} lb_as_t;
+
+format_function_t format_lb_as;
+
+typedef struct {
+  u32 as_index;
+} lb_new_flow_entry_t;
+
+#define lb_foreach_vip_counter \
+ _(NEXT_PACKET, , 0) \
+ _(FIRST_PACKET, , 1) \
+ _(UNTRACKED_PACKET, , 2) \
+ _(NO_SERVER, , 3)
+
+typedef enum {
+#define _(a,b,c) LB_VIP_COUNTER_##a = c,
+  lb_foreach_vip_counter
+#undef _
+  LB_N_VIP_COUNTERS
+} lb_vip_counter_t;
+
+typedef enum {
+  LB_ENCAP_TYPE_GRE4,
+  LB_ENCAP_TYPE_GRE6,
+  LB_ENCAP_TYPE_L3DSR,
+  LB_ENCAP_TYPE_NAT4,
+  LB_ENCAP_TYPE_NAT6,
+  LB_ENCAP_N_TYPES,
+} lb_encap_type_t;
+
+
+
+typedef enum {
+  LB_LKP_SAME_IP_PORT,
+  LB_LKP_DIFF_IP_PORT,
+  LB_LKP_ALL_PORT_IP,
+  LB_LKP_N_TYPES,
+} lb_lkp_type_t;
+
+
+typedef enum {
+  LB_VIP_TYPE_IP6_GRE6,
+  LB_VIP_TYPE_IP6_GRE4,
+  LB_VIP_TYPE_IP4_GRE6,
+  LB_VIP_TYPE_IP4_GRE4,
+  LB_VIP_TYPE_IP4_L3DSR,
+  LB_VIP_TYPE_IP4_NAT4,
+  LB_VIP_TYPE_IP6_NAT6,
+  LB_VIP_N_TYPES,
+} lb_vip_type_t;
+
+format_function_t format_lb_vip_type;
+unformat_function_t unformat_lb_vip_type;
+
+
+
+typedef struct {
+  union
+  {
+    struct
+    {
+      
+      u8 srv_type;
+
+      
+      u16 target_port;
+    };
+    
+    u8 dscp;
+    u64 as_u64;
+  };
+} lb_vip_encap_args_t;
+
+typedef struct {
+  
+  union {
+    struct {
+      u32 vip_prefix_index;
+      u16 port;
+      u8  protocol;
+      u8 rsv;
+    };
+    u64 as_u64;
+  };
+} vip_port_key_t;
+
+
+typedef struct {
+
+  
+  
+  lb_new_flow_entry_t *new_flow_table;
+
+  
+  u32 new_flow_table_mask;
+
+  
+  u32 last_garbage_collection;
+
+  
+  
+  ip46_address_t prefix;
+
+  
+  u8 plen;
+
+  
+  u8 protocol;
+
+  
+  u16 port;
+
+  
+  u32 vip_prefix_index;
+
+  
+  lb_vip_type_t type;
+
+  
+  lb_vip_encap_args_t encap_args;
+
+  
+  u8 flags;
+#define LB_VIP_FLAGS_USED 0x1
+#define LB_VIP_FLAGS_SRC_IP_STICKY 0x2
+
+  
+  u32 *as_indexes;
+} lb_vip_t;
+
+#define lb_vip_is_ip4(type) (type == LB_VIP_TYPE_IP4_GRE6 \
+                            || type == LB_VIP_TYPE_IP4_GRE4 \
+                            || type == LB_VIP_TYPE_IP4_L3DSR \
+                            || type == LB_VIP_TYPE_IP4_NAT4 )
+
+#define lb_vip_is_ip6(type) (type == LB_VIP_TYPE_IP6_GRE6 \
+                            || type == LB_VIP_TYPE_IP6_GRE4 \
+                            || type == LB_VIP_TYPE_IP6_NAT6 )
+
+#define lb_encap_is_ip4(vip) ((vip)->type == LB_VIP_TYPE_IP6_GRE4 \
+                             || (vip)->type == LB_VIP_TYPE_IP4_GRE4 \
+                             || (vip)->type == LB_VIP_TYPE_IP4_L3DSR \
+                             || (vip)->type == LB_VIP_TYPE_IP4_NAT4 )
+
+#define lb_vip_is_src_ip_sticky(vip)                                          \
+  (((vip)->flags & LB_VIP_FLAGS_SRC_IP_STICKY) != 0)
+
+
+#define lb_vip_is_gre4(vip) (((vip)->type == LB_VIP_TYPE_IP6_GRE4 \
+                            || (vip)->type == LB_VIP_TYPE_IP4_GRE4) \
+                            && ((vip)->port == 0))
+
+#define lb_vip_is_gre6(vip) (((vip)->type == LB_VIP_TYPE_IP6_GRE6 \
+                            || (vip)->type == LB_VIP_TYPE_IP4_GRE6) \
+                            && ((vip)->port == 0))
+
+#define lb_vip_is_gre4_port(vip) (((vip)->type == LB_VIP_TYPE_IP6_GRE4 \
+                                 || (vip)->type == LB_VIP_TYPE_IP4_GRE4) \
+                                 && ((vip)->port != 0))
+
+#define lb_vip_is_gre6_port(vip) (((vip)->type == LB_VIP_TYPE_IP6_GRE6 \
+                                 || (vip)->type == LB_VIP_TYPE_IP4_GRE6) \
+                                 && ((vip)->port != 0))
+
+
+always_inline bool
+lb_vip_is_l3dsr(const lb_vip_t *vip)
+{
+  return (vip->type == LB_VIP_TYPE_IP4_L3DSR && vip->port == 0);
+}
+
+always_inline bool
+lb_vip_is_l3dsr_port(const lb_vip_t *vip)
+{
+  return (vip->type == LB_VIP_TYPE_IP4_L3DSR && vip->port != 0);
+}
+always_inline bool
+lb_vip_is_nat4_port(const lb_vip_t *vip)
+{
+  return (vip->type == LB_VIP_TYPE_IP4_NAT4 && vip->port != 0);
+}
+always_inline bool
+lb_vip_is_nat6_port(const lb_vip_t *vip)
+{
+  return (vip->type == LB_VIP_TYPE_IP6_NAT6 && vip->port != 0);
+}
+
+format_function_t format_lb_vip;
+format_function_t format_lb_vip_detailed;
+
+#define foreach_lb_nat_protocol \
+  _(UDP, 0, udp, )       \
+  _(TCP, 1, tcp, )
+
+typedef enum {
+#define _(N, i, n, s) LB_NAT_PROTOCOL_##N = i,
+  foreach_lb_nat_protocol
+#undef _
+} lb_nat_protocol_t;
+
+always_inline u32
+lb_ip_proto_to_nat_proto (u8 ip_proto)
+{
+  u32 nat_proto = ~0;
+
+  nat_proto = (ip_proto == IP_PROTOCOL_UDP) ? LB_NAT_PROTOCOL_UDP : nat_proto;
+  nat_proto = (ip_proto == IP_PROTOCOL_TCP) ? LB_NAT_PROTOCOL_TCP : nat_proto;
+
+  return nat_proto;
+}
+
+
+typedef struct {
+  union
+  {
+    struct
+    {
+      ip4_address_t addr;
+      u16 port;
+      u16 protocol:3,
+          fib_index:13;
+    };
+    u64 as_u64;
+  };
+} lb_snat4_key_t;
+
+typedef struct
+{
+  union
+  {
+    struct
+    {
+      ip6_address_t addr;
+      u16 port;
+      u16 protocol;
+      u32 fib_index;
+    };
+    u64 as_u64[3];
+  };
+} lb_snat6_key_t;
+
+typedef struct {
+  
+  ip46_address_t src_ip;
+  ip46_address_t as_ip;
+  u8 src_ip_is_ipv6;
+  u8 as_ip_is_ipv6;
+  
+  u16 src_port;
+  u16 target_port; 
+  u32 vrf_id;
+  u32 fib_index;
+} lb_snat_mapping_t;
+
+typedef struct {
+  
+  lb_hash_t *sticky_ht;
+} lb_per_cpu_t;
+
+typedef struct {
+  
+  lb_vip_t *vips;
+
+  
+  uword *vip_prefix_indexes;
+
+  
+  lb_as_t *ass;
+
+  
+  vlib_refcount_t as_refcount;
+
+  
+  uword * vip_index_by_nodeport;
+
+  
+  lb_per_cpu_t *per_cpu;
+
+  
+  u32 ip_lookup_next_index[LB_VIP_N_TYPES];
+
+  
+  ip6_address_t ip6_src_address;
+
+  
+  ip4_address_t ip4_src_address;
+
+  
+  u32 per_cpu_sticky_buckets;
+
+  
+  u32 flow_timeout;
+
+  
+  vlib_simple_counter_main_t vip_counters[LB_N_VIP_COUNTERS];
+
+  
+  dpo_type_t dpo_gre4_type;
+  dpo_type_t dpo_gre6_type;
+  dpo_type_t dpo_gre4_port_type;
+  dpo_type_t dpo_gre6_port_type;
+  dpo_type_t dpo_l3dsr_type;
+  dpo_type_t dpo_l3dsr_port_type;
+  dpo_type_t dpo_nat4_port_type;
+  dpo_type_t dpo_nat6_port_type;
+  
+  fib_node_type_t fib_node_type;
+
+  
+  clib_bihash_8_8_t vip_index_per_port;
+
+  
+  clib_bihash_8_8_t mapping_by_as4;
+  clib_bihash_24_8_t mapping_by_as6;
+
+  
+  lb_snat_mapping_t * snat_mappings;
+
+  
+  u16 msg_id_base;
+
+  clib_spinlock_t writer_lock;
+
+  
+  vlib_main_t *vlib_main;
+  vnet_main_t *vnet_main;
+} lb_main_t;
+
+
+typedef struct {
+  ip46_address_t prefix;
+  u8 plen;
+  u8 protocol;
+  u16 port;
+  u8 src_ip_sticky;
+  lb_vip_type_t type;
+  u32 new_length;
+  lb_vip_encap_args_t encap_args;
+} lb_vip_add_args_t;
+
+extern lb_main_t lb_main;
+extern vlib_node_registration_t lb4_node;
+extern vlib_node_registration_t lb6_node;
+extern vlib_node_registration_t lb4_nodeport_node;
+extern vlib_node_registration_t lb6_nodeport_node;
+extern vlib_node_registration_t lb_nat4_in2out_node;
+extern vlib_node_registration_t lb_nat6_in2out_node;
+
+
+int lb_conf(ip4_address_t *ip4_address, ip6_address_t *ip6_address,
+            u32 sticky_buckets, u32 flow_timeout);
+
+int lb_vip_add(lb_vip_add_args_t args, u32 *vip_index);
+
+int lb_vip_del(u32 vip_index);
+
+int lb_vip_find_index(ip46_address_t *prefix, u8 plen, u8 protocol,
+                      u16 port, u32 *vip_index);
+
+#define lb_vip_get_by_index(index) (pool_is_free_index(lb_main.vips, index)?NULL:pool_elt_at_index(lb_main.vips, index))
+
+int lb_vip_add_ass(u32 vip_index, ip46_address_t *addresses, u32 n);
+int lb_vip_del_ass(u32 vip_index, ip46_address_t *addresses, u32 n, u8 flush);
+int lb_flush_vip_as (u32 vip_index, u32 as_index);
+
+u32 lb_hash_time_now(vlib_main_t * vm);
+
+void lb_garbage_collection();
+
+int lb_nat4_interface_add_del (u32 sw_if_index, int is_del);
+int lb_nat6_interface_add_del (u32 sw_if_index, int is_del);
+
+format_function_t format_lb_main;
+
+#endif 
+
+
+/*** lb.c ***/
+
+
+
+#include <lb/lb.h>
+#include <vnet/plugin/plugin.h>
+#include <vpp/app/version.h>
+#include <vnet/api_errno.h>
+#include <vnet/udp/udp_local.h>
+#include <vppinfra/lock.h>
+
+#define LB_GARBAGE_RUN 60
+
+#define LB_CONCURRENCY_TIMEOUT 10
+
+static fib_source_t lb_fib_src;
+
+lb_main_t lb_main;
+
+#define lb_get_writer_lock() clib_spinlock_lock (&lb_main.writer_lock)
+#define lb_put_writer_lock() clib_spinlock_unlock (&lb_main.writer_lock)
+
+static void lb_as_stack (lb_as_t *as);
+
+
+const static char * const lb_dpo_gre4_ip4[] = {  , NULL };
+const static char * const lb_dpo_gre4_ip6[] = {  , NULL };
+const static char* const * const lb_dpo_gre4_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_gre4_ip4,
+        [DPO_PROTO_IP6]  = lb_dpo_gre4_ip6,
+    };
+
+const static char * const lb_dpo_gre6_ip4[] = {  , NULL };
+const static char * const lb_dpo_gre6_ip6[] = {  , NULL };
+const static char* const * const lb_dpo_gre6_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_gre6_ip4,
+        [DPO_PROTO_IP6]  = lb_dpo_gre6_ip6,
+    };
+
+const static char * const lb_dpo_gre4_ip4_port[] = {  , NULL };
+const static char * const lb_dpo_gre4_ip6_port[] = {  , NULL };
+const static char* const * const lb_dpo_gre4_port_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_gre4_ip4_port,
+        [DPO_PROTO_IP6]  = lb_dpo_gre4_ip6_port,
+    };
+
+const static char * const lb_dpo_gre6_ip4_port[] = {  , NULL };
+const static char * const lb_dpo_gre6_ip6_port[] = {  , NULL };
+const static char* const * const lb_dpo_gre6_port_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_gre6_ip4_port,
+        [DPO_PROTO_IP6]  = lb_dpo_gre6_ip6_port,
+    };
+
+const static char * const lb_dpo_l3dsr_ip4[] = { , NULL};
+const static char* const * const lb_dpo_l3dsr_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_l3dsr_ip4,
+    };
+
+const static char * const lb_dpo_l3dsr_ip4_port[] = { , NULL};
+const static char* const * const lb_dpo_l3dsr_port_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_l3dsr_ip4_port,
+    };
+
+const static char * const lb_dpo_nat4_ip4_port[] = {  , NULL };
+const static char* const * const lb_dpo_nat4_port_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP4]  = lb_dpo_nat4_ip4_port,
+    };
+
+const static char * const lb_dpo_nat6_ip6_port[] = {  , NULL };
+const static char* const * const lb_dpo_nat6_port_nodes[DPO_PROTO_NUM] =
+    {
+        [DPO_PROTO_IP6]  = lb_dpo_nat6_ip6_port,
+    };
+
+u32 lb_hash_time_now(vlib_main_t * vm)
+{
+  return (u32) (vlib_time_now(vm) + 10000);
+}
+
+u8 *format_lb_main (u8 * s, va_list * args)
+{
+  vlib_thread_main_t *tm = vlib_get_thread_main();
+  lb_main_t *lbm = &lb_main;
+  s = format(s, );
+  s = format(s, , format_ip4_address, &lbm->ip4_src_address);
+  s = format(s, , format_ip6_address, &lbm->ip6_src_address);
+  s = format(s, , pool_elts(lbm->vips));
+  s = format(s, , pool_elts(lbm->ass) - 1);
+
+  u32 thread_index;
+  for(thread_index = 0; thread_index < tm->n_vlib_mains; thread_index++ ) {
+    lb_hash_t *h = lbm->per_cpu[thread_index].sticky_ht;
+    if (h) {
+      s = format(s, , thread_index);
+      s = format(s, , h->timeout);
+      s = format(s, , lb_hash_elts(h, lb_hash_time_now(vlib_get_main())),  lb_hash_size(h));
+    }
+  }
+
+  return s;
+}
+
+static char *lb_vip_type_strings[] = {
+    [LB_VIP_TYPE_IP6_GRE6] = ,
+    [LB_VIP_TYPE_IP6_GRE4] = ,
+    [LB_VIP_TYPE_IP4_GRE6] = ,
+    [LB_VIP_TYPE_IP4_GRE4] = ,
+    [LB_VIP_TYPE_IP4_L3DSR] = ,
+    [LB_VIP_TYPE_IP4_NAT4] = ,
+    [LB_VIP_TYPE_IP6_NAT6] = ,
+};
+
+u8 *format_lb_vip_type (u8 * s, va_list * args)
+{
+  lb_vip_type_t vipt = va_arg (*args, lb_vip_type_t);
+  u32 i;
+  for (i=0; i<LB_VIP_N_TYPES; i++)
+    if (vipt == i)
+      return format(s, lb_vip_type_strings[i]);
+  return format(s, );
+}
+
+uword unformat_lb_vip_type (unformat_input_t * input, va_list * args)
+{
+  lb_vip_type_t *vipt = va_arg (*args, lb_vip_type_t *);
+  u32 i;
+  for (i=0; i<LB_VIP_N_TYPES; i++)
+    if (unformat(input, lb_vip_type_strings[i])) {
+      *vipt = i;
+      return 1;
+    }
+  return 0;
+}
+
+u8 *format_lb_vip (u8 * s, va_list * args)
+{
+  lb_vip_t *vip = va_arg (*args, lb_vip_t *);
+  s = format(s, ,
+             format_lb_vip_type, vip->type,
+             format_ip46_prefix, &vip->prefix, vip->plen, IP46_TYPE_ANY,
+             vip->new_flow_table_mask + 1,
+             pool_elts(vip->as_indexes),
+             (vip->flags & LB_VIP_FLAGS_USED)?:);
+
+  if (vip->port != 0)
+    {
+      s = format(s, , vip->protocol, vip->port);
+    }
+
+  if (vip->type == LB_VIP_TYPE_IP4_L3DSR)
+    {
+      s = format(s, , vip->encap_args.dscp);
+    }
+  else if ((vip->type == LB_VIP_TYPE_IP4_NAT4)
+          || (vip->type == LB_VIP_TYPE_IP6_NAT6))
+    {
+      s = format (s, ,
+         (vip->encap_args.srv_type == LB_SRV_TYPE_CLUSTERIP)?:
+             ,
+         ntohs(vip->port), ntohs(vip->encap_args.target_port));
+    }
+
+  return s;
+}
+
+u8 *format_lb_as (u8 * s, va_list * args)
+{
+  lb_as_t *as = va_arg (*args, lb_as_t *);
+  return format(s, , format_ip46_address,
+                &as->address, IP46_TYPE_ANY,
+                (as->flags & LB_AS_FLAGS_USED)?:);
+}
+
+u8 *format_lb_vip_detailed (u8 * s, va_list * args)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_vip_t *vip = va_arg (*args, lb_vip_t *);
+  u32 indent = format_get_indent (s);
+
+  
+  s = format(s, 
+                   ,
+                  format_white_space, indent,
+                  format_lb_vip_type, vip->type,
+                  vip - lbm->vips,
+                  format_ip46_prefix, &vip->prefix, (u32) vip->plen, IP46_TYPE_ANY,
+                  lb_vip_is_src_ip_sticky (vip) ?  : ,
+                  (vip->flags & LB_VIP_FLAGS_USED)?:,
+                  format_white_space, indent,
+                  vip->new_flow_table_mask + 1);
+  
+
+  if (vip->port != 0)
+    {
+      s = format(s, ,
+                 format_white_space, indent,
+                 vip->protocol, vip->port);
+    }
+
+  if (vip->type == LB_VIP_TYPE_IP4_L3DSR)
+    {
+      s = format(s, ,
+                    format_white_space, indent,
+                    vip->encap_args.dscp);
+    }
+  else if ((vip->type == LB_VIP_TYPE_IP4_NAT4)
+          || (vip->type == LB_VIP_TYPE_IP6_NAT6))
+    {
+      s = format (s, ,
+         format_white_space, indent,
+         (vip->encap_args.srv_type == LB_SRV_TYPE_CLUSTERIP)?:
+             ,
+         ntohs(vip->port), ntohs(vip->encap_args.target_port));
+    }
+
+    s = format(s, ,
+             format_white_space, indent);
+  u32 i;
+  for (i=0; i<LB_N_VIP_COUNTERS; i++)
+    s = format(s, ,
+               format_white_space, indent,
+               lbm->vip_counters[i].name,
+               vlib_get_simple_counter(&lbm->vip_counters[i], vip - lbm->vips));
+
+
+  s = format(s, ,
+             format_white_space, indent,
+             pool_elts(vip->as_indexes));
+
+    u32 *count = 0;
+  vec_validate(count, pool_len(lbm->ass));   lb_new_flow_entry_t *nfe;
+  vec_foreach(nfe, vip->new_flow_table)
+    count[nfe->as_index]++;
+
+  lb_as_t *as;
+  u32 *as_index;
+  pool_foreach (as_index, vip->as_indexes) {
+      as = &lbm->ass[*as_index];
+      s = format(s, ,
+                   format_white_space, indent,
+                   format_ip46_address, &as->address, IP46_TYPE_ANY,
+                   count[as - lbm->ass],
+                   vlib_refcount_get(&lbm->as_refcount, as - lbm->ass),
+                   as->dpo.dpoi_index,
+                   (as->flags & LB_AS_FLAGS_USED)?:);
+  }
+
+  vec_free(count);
+  return s;
+}
+
+typedef struct {
+  u32 as_index;
+  u32 last;
+  u32 skip;
+} lb_pseudorand_t;
+
+static int lb_pseudorand_compare(void *a, void *b)
+{
+  lb_as_t *asa, *asb;
+  lb_main_t *lbm = &lb_main;
+  asa = &lbm->ass[((lb_pseudorand_t *)a)->as_index];
+  asb = &lbm->ass[((lb_pseudorand_t *)b)->as_index];
+  return memcmp(&asa->address, &asb->address, sizeof(asb->address));
+}
+
+static void lb_vip_garbage_collection(lb_vip_t *vip)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_snat4_key_t m_key4;
+  clib_bihash_kv_8_8_t kv4, value4;
+  lb_snat6_key_t m_key6;
+  clib_bihash_kv_24_8_t kv6, value6;
+  lb_snat_mapping_t *m = 0;
+  CLIB_SPINLOCK_ASSERT_LOCKED (&lbm->writer_lock);
+
+  u32 now = (u32) vlib_time_now(vlib_get_main());
+  if (!clib_u32_loop_gt(now, vip->last_garbage_collection + LB_GARBAGE_RUN))
+    return;
+
+  vip->last_garbage_collection = now;
+  lb_as_t *as;
+  u32 *as_index;
+  pool_foreach (as_index, vip->as_indexes) {
+      as = &lbm->ass[*as_index];
+      if (!(as->flags & LB_AS_FLAGS_USED) &&           clib_u32_loop_gt(now, as->last_used + LB_CONCURRENCY_TIMEOUT) &&
+          (vlib_refcount_get(&lbm->as_refcount, as - lbm->ass) == 0))
+        { 
+          if (lb_vip_is_nat4_port(vip)) {
+              m_key4.addr = as->address.ip4;
+              m_key4.port = vip->encap_args.target_port;
+              m_key4.protocol = 0;
+              m_key4.fib_index = 0;
+
+              kv4.key = m_key4.as_u64;
+              if(!clib_bihash_search_8_8(&lbm->mapping_by_as4, &kv4, &value4))
+                m = pool_elt_at_index (lbm->snat_mappings, value4.value);
+              ASSERT (m);
+
+              kv4.value = m - lbm->snat_mappings;
+              clib_bihash_add_del_8_8(&lbm->mapping_by_as4, &kv4, 0);
+              pool_put (lbm->snat_mappings, m);
+          } else if (lb_vip_is_nat6_port(vip)) {
+              m_key6.addr.as_u64[0] = as->address.ip6.as_u64[0];
+              m_key6.addr.as_u64[1] = as->address.ip6.as_u64[1];
+              m_key6.port = vip->encap_args.target_port;
+              m_key6.protocol = 0;
+              m_key6.fib_index = 0;
+
+              kv6.key[0] = m_key6.as_u64[0];
+              kv6.key[1] = m_key6.as_u64[1];
+              kv6.key[2] = m_key6.as_u64[2];
+
+              if (!clib_bihash_search_24_8 (&lbm->mapping_by_as6, &kv6, &value6))
+                m = pool_elt_at_index (lbm->snat_mappings, value6.value);
+              ASSERT (m);
+
+              kv6.value = m - lbm->snat_mappings;
+              clib_bihash_add_del_24_8(&lbm->mapping_by_as6, &kv6, 0);
+              pool_put (lbm->snat_mappings, m);
+          }
+          fib_entry_child_remove(as->next_hop_fib_entry_index,
+                                as->next_hop_child_index);
+          fib_table_entry_delete_index(as->next_hop_fib_entry_index,
+                                       FIB_SOURCE_RR);
+          as->next_hop_fib_entry_index = FIB_NODE_INDEX_INVALID;
+
+          pool_put(vip->as_indexes, as_index);
+          pool_put(lbm->ass, as);
+        }
+  }
+}
+
+void lb_garbage_collection()
+{
+  lb_main_t *lbm = &lb_main;
+  lb_get_writer_lock();
+  lb_vip_t *vip;
+  u32 *to_be_removed_vips = 0, *i;
+  pool_foreach (vip, lbm->vips) {
+      lb_vip_garbage_collection(vip);
+
+      if (!(vip->flags & LB_VIP_FLAGS_USED) &&
+          (pool_elts(vip->as_indexes) == 0)) {
+        vec_add1(to_be_removed_vips, vip - lbm->vips);
+      }
+  }
+
+  vec_foreach(i, to_be_removed_vips) {
+    vip = &lbm->vips[*i];
+    pool_put(lbm->vips, vip);
+    pool_free(vip->as_indexes);
+  }
+
+  vec_free(to_be_removed_vips);
+  lb_put_writer_lock();
+}
+
+static void lb_vip_update_new_flow_table(lb_vip_t *vip)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_new_flow_entry_t *old_table;
+  u32 i, *as_index;
+  lb_new_flow_entry_t *new_flow_table = 0;
+  lb_as_t *as;
+  lb_pseudorand_t *pr, *sort_arr = 0;
+
+  CLIB_SPINLOCK_ASSERT_LOCKED (&lbm->writer_lock); 
+    i = 0;
+  pool_foreach (as_index, vip->as_indexes) {
+      as = &lbm->ass[*as_index];
+      if (as->flags & LB_AS_FLAGS_USED) {         i = 1;
+        goto out;       }
+  }
+
+out:
+  if (i == 0) {
+        vec_validate(new_flow_table, vip->new_flow_table_mask);
+    for (i=0; i<vec_len(new_flow_table); i++)
+      new_flow_table[i].as_index = 0;
+
+    goto finished;
+  }
+
+    vec_validate (sort_arr, pool_elts (vip->as_indexes) - 1);
+
+  i = 0;
+  pool_foreach (as_index, vip->as_indexes) {
+      as = &lbm->ass[*as_index];
+      if (!(as->flags & LB_AS_FLAGS_USED))         continue;
+
+      sort_arr[i].as_index = as - lbm->ass;
+      i++;
+  }
+  vec_set_len (sort_arr, i);
+
+  vec_sort_with_function(sort_arr, lb_pseudorand_compare);
+
+    vec_foreach(pr, sort_arr) {
+    lb_as_t *as = &lbm->ass[pr->as_index];
+
+    u64 seed = clib_xxhash(as->address.as_u64[0] ^
+                           as->address.as_u64[1]);
+    
+    pr->skip = ((seed & 0xffffffff) | 1) & vip->new_flow_table_mask;
+    pr->last = (seed >> 32) & vip->new_flow_table_mask;
+  }
+
+    vec_validate(new_flow_table, vip->new_flow_table_mask);
+  for (i=0; i<vec_len(new_flow_table); i++)
+    new_flow_table[i].as_index = 0;
+
+  u32 done = 0;
+  while (1) {
+    vec_foreach(pr, sort_arr) {
+      while (1) {
+        u32 last = pr->last;
+        pr->last = (pr->last + pr->skip) & vip->new_flow_table_mask;
+        if (new_flow_table[last].as_index == 0) {
+          new_flow_table[last].as_index = pr->as_index;
+          break;
+        }
+      }
+      done++;
+      if (done == vec_len(new_flow_table))
+        goto finished;
+    }
+  }
+
+finished:
+  vec_free(sort_arr);
+
+  old_table = vip->new_flow_table;
+  vip->new_flow_table = new_flow_table;
+  vec_free(old_table);
+}
+
+int lb_conf(ip4_address_t *ip4_address, ip6_address_t *ip6_address,
+           u32 per_cpu_sticky_buckets, u32 flow_timeout)
+{
+  lb_main_t *lbm = &lb_main;
+
+  if (!is_pow2(per_cpu_sticky_buckets))
+    return VNET_API_ERROR_INVALID_MEMORY_SIZE;
+
+  lb_get_writer_lock();   lbm->ip4_src_address = *ip4_address;
+  lbm->ip6_src_address = *ip6_address;
+  lbm->per_cpu_sticky_buckets = per_cpu_sticky_buckets;
+  lbm->flow_timeout = flow_timeout;
+  lb_put_writer_lock();
+  return 0;
+}
+
+
+
+static
+int lb_vip_port_find_index(ip46_address_t *prefix, u8 plen,
+                           u8 protocol, u16 port,
+                           lb_lkp_type_t lkp_type,
+                           u32 *vip_index)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_vip_t *vip;
+  
+  CLIB_SPINLOCK_ASSERT_LOCKED (&lbm->writer_lock);
+  ip46_prefix_normalize(prefix, plen);
+  pool_foreach (vip, lbm->vips) {
+      if ((vip->flags & LB_AS_FLAGS_USED) &&
+          vip->plen == plen &&
+          vip->prefix.as_u64[0] == prefix->as_u64[0] &&
+          vip->prefix.as_u64[1] == prefix->as_u64[1])
+        {
+          if((lkp_type == LB_LKP_SAME_IP_PORT &&
+               vip->protocol == protocol &&
+               vip->port == port) ||
+             (lkp_type == LB_LKP_ALL_PORT_IP &&
+               vip->port == 0) ||
+             (lkp_type == LB_LKP_DIFF_IP_PORT &&
+                (vip->protocol != protocol ||
+                vip->port != port) ) )
+            {
+              *vip_index = vip - lbm->vips;
+              return 0;
+            }
+        }
+  }
+  return VNET_API_ERROR_NO_SUCH_ENTRY;
+}
+
+static
+int lb_vip_port_find_index_with_lock(ip46_address_t *prefix, u8 plen,
+                                     u8 protocol, u16 port, u32 *vip_index)
+{
+  return lb_vip_port_find_index(prefix, plen, protocol, port,
+                                LB_LKP_SAME_IP_PORT, vip_index);
+}
+
+static
+int lb_vip_port_find_all_port_vip(ip46_address_t *prefix, u8 plen,
+                                  u32 *vip_index)
+{
+  return lb_vip_port_find_index(prefix, plen, ~0, 0,
+                                LB_LKP_ALL_PORT_IP, vip_index);
+}
+
+
+static
+int lb_vip_port_find_diff_port(ip46_address_t *prefix, u8 plen,
+                               u8 protocol, u16 port, u32 *vip_index)
+{
+  return lb_vip_port_find_index(prefix, plen, protocol, port,
+                                LB_LKP_DIFF_IP_PORT, vip_index);
+}
+
+int lb_vip_find_index(ip46_address_t *prefix, u8 plen, u8 protocol,
+                      u16 port, u32 *vip_index)
+{
+  int ret;
+  lb_get_writer_lock();
+  ret = lb_vip_port_find_index_with_lock(prefix, plen,
+                                         protocol, port, vip_index);
+  lb_put_writer_lock();
+  return ret;
+}
+
+static int lb_as_find_index_vip(lb_vip_t *vip, ip46_address_t *address, u32 *as_index)
+{
+  lb_main_t *lbm = &lb_main;
+  
+  CLIB_SPINLOCK_ASSERT_LOCKED (&lbm->writer_lock);
+  lb_as_t *as;
+  u32 *asi;
+  pool_foreach (asi, vip->as_indexes) {
+      as = &lbm->ass[*asi];
+      if (as->vip_index == (vip - lbm->vips) &&
+          as->address.as_u64[0] == address->as_u64[0] &&
+          as->address.as_u64[1] == address->as_u64[1])
+      {
+        *as_index = as - lbm->ass;
+        return 0;
+      }
+  }
+  return -1;
+}
+
+int lb_vip_add_ass(u32 vip_index, ip46_address_t *addresses, u32 n)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_get_writer_lock();
+  lb_vip_t *vip;
+  if (!(vip = lb_vip_get_by_index(vip_index))) {
+    lb_put_writer_lock();
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
+  }
+
+  ip46_type_t type = lb_encap_is_ip4(vip)?IP46_TYPE_IP4:IP46_TYPE_IP6;
+  u32 *to_be_added = 0;
+  u32 *to_be_updated = 0;
+  u32 i;
+  u32 *ip;
+  lb_snat_mapping_t *m;
+
+    while (n--) {
+
+    if (!lb_as_find_index_vip(vip, &addresses[n], &i)) {
+      if (lbm->ass[i].flags & LB_AS_FLAGS_USED) {
+        vec_free(to_be_added);
+        vec_free(to_be_updated);
+        lb_put_writer_lock();
+        return VNET_API_ERROR_VALUE_EXIST;
+      }
+      vec_add1(to_be_updated, i);
+      goto next;
+    }
+
+    if (ip46_address_type(&addresses[n]) != type) {
+      vec_free(to_be_added);
+      vec_free(to_be_updated);
+      lb_put_writer_lock();
+      return VNET_API_ERROR_INVALID_ADDRESS_FAMILY;
+    }
+
+    if (n) {
+      u32 n2 = n;
+      while(n2--)         if (addresses[n2].as_u64[0] == addresses[n].as_u64[0] &&
+            addresses[n2].as_u64[1] == addresses[n].as_u64[1])
+          goto next;
+    }
+
+    vec_add1(to_be_added, n);
+
+next:
+    continue;
+  }
+
+    vec_foreach(ip, to_be_updated) {
+    lbm->ass[*ip].flags = LB_AS_FLAGS_USED;
+  }
+  vec_free(to_be_updated);
+
+    vec_foreach(ip, to_be_added) {
+    lb_as_t *as;
+    u32 *as_index;
+    pool_get(lbm->ass, as);
+    as->address = addresses[*ip];
+    as->flags = LB_AS_FLAGS_USED;
+    as->vip_index = vip_index;
+    pool_get(vip->as_indexes, as_index);
+    *as_index = as - lbm->ass;
+
+    
+    fib_prefix_t nh = {};
+    if (lb_encap_is_ip4(vip)) {
+        nh.fp_addr.ip4 = as->address.ip4;
+        nh.fp_len = 32;
+        nh.fp_proto = FIB_PROTOCOL_IP4;
+    } else {
+        nh.fp_addr.ip6 = as->address.ip6;
+        nh.fp_len = 128;
+        nh.fp_proto = FIB_PROTOCOL_IP6;
+    }
+
+    as->next_hop_fib_entry_index =
+        fib_table_entry_special_add(0,
+                                    &nh,
+                                    FIB_SOURCE_RR,
+                                    FIB_ENTRY_FLAG_NONE);
+    as->next_hop_child_index =
+        fib_entry_child_add(as->next_hop_fib_entry_index,
+                            lbm->fib_node_type,
+                            as - lbm->ass);
+
+    lb_as_stack(as);
+
+    if ( lb_vip_is_nat4_port(vip) || lb_vip_is_nat6_port(vip) )
+      {
+        
+        pool_get (lbm->snat_mappings, m);
+        clib_memset (m, 0, sizeof (*m));
+        if (lb_vip_is_nat4_port(vip)) {
+            lb_snat4_key_t m_key4;
+            clib_bihash_kv_8_8_t kv4;
+            m_key4.addr = as->address.ip4;
+            m_key4.port = vip->encap_args.target_port;
+            m_key4.protocol = 0;
+            m_key4.fib_index = 0;
+
+            if (vip->encap_args.srv_type == LB_SRV_TYPE_CLUSTERIP)
+              {
+                m->src_ip.ip4 = vip->prefix.ip4;
+              }
+            else if (vip->encap_args.srv_type == LB_SRV_TYPE_NODEPORT)
+              {
+                m->src_ip.ip4 = lbm->ip4_src_address;
+              }
+            m->src_ip_is_ipv6 = 0;
+            m->as_ip.ip4 = as->address.ip4;
+            m->as_ip_is_ipv6 = 0;
+            m->src_port = vip->port;
+            m->target_port = vip->encap_args.target_port;
+            m->vrf_id = 0;
+            m->fib_index = 0;
+
+            kv4.key = m_key4.as_u64;
+            kv4.value = m - lbm->snat_mappings;
+            clib_bihash_add_del_8_8(&lbm->mapping_by_as4, &kv4, 1);
+        } else {
+            lb_snat6_key_t m_key6;
+            clib_bihash_kv_24_8_t kv6;
+            m_key6.addr.as_u64[0] = as->address.ip6.as_u64[0];
+            m_key6.addr.as_u64[1] = as->address.ip6.as_u64[1];
+            m_key6.port = vip->encap_args.target_port;
+            m_key6.protocol = 0;
+            m_key6.fib_index = 0;
+
+            if (vip->encap_args.srv_type == LB_SRV_TYPE_CLUSTERIP)
+              {
+                m->src_ip.ip6.as_u64[0] = vip->prefix.ip6.as_u64[0];
+                m->src_ip.ip6.as_u64[1] = vip->prefix.ip6.as_u64[1];
+              }
+            else if (vip->encap_args.srv_type == LB_SRV_TYPE_NODEPORT)
+              {
+                m->src_ip.ip6.as_u64[0] = lbm->ip6_src_address.as_u64[0];
+                m->src_ip.ip6.as_u64[1] = lbm->ip6_src_address.as_u64[1];
+              }
+            m->src_ip_is_ipv6 = 1;
+            m->as_ip.ip6.as_u64[0] = as->address.ip6.as_u64[0];
+            m->as_ip.ip6.as_u64[1] = as->address.ip6.as_u64[1];
+            m->as_ip_is_ipv6 = 1;
+            m->src_port = vip->port;
+            m->target_port = vip->encap_args.target_port;
+            m->vrf_id = 0;
+            m->fib_index = 0;
+
+            kv6.key[0] = m_key6.as_u64[0];
+            kv6.key[1] = m_key6.as_u64[1];
+            kv6.key[2] = m_key6.as_u64[2];
+            kv6.value = m - lbm->snat_mappings;
+            clib_bihash_add_del_24_8(&lbm->mapping_by_as6, &kv6, 1);
+        }
+      }
+  }
+  vec_free(to_be_added);
+
+    lb_vip_update_new_flow_table(vip);
+
+    lb_vip_garbage_collection(vip);
+
+  lb_put_writer_lock();
+  return 0;
+}
+
+int
+lb_flush_vip_as (u32 vip_index, u32 as_index)
+{
+  u32 thread_index;
+  vlib_thread_main_t *tm = vlib_get_thread_main();
+  lb_main_t *lbm = &lb_main;
+
+  for(thread_index = 0; thread_index < tm->n_vlib_mains; thread_index++ ) {
+    lb_hash_t *h = lbm->per_cpu[thread_index].sticky_ht;
+    if (h != NULL) {
+        u32 i;
+        lb_hash_bucket_t *b;
+
+        lb_hash_foreach_entry(h, b, i) {
+          if ((vip_index == ~0)
+              || ((b->vip[i] == vip_index) && (as_index == ~0))
+              || ((b->vip[i] == vip_index) && (b->value[i] == as_index)))
+            {
+              vlib_refcount_add(&lbm->as_refcount, thread_index, b->value[i], -1);
+              vlib_refcount_add(&lbm->as_refcount, thread_index, 0, 1);
+              b->vip[i] = ~0;
+              b->value[i] = 0;
+            }
+        }
+        if (vip_index == ~0)
+          {
+            lb_hash_free(h);
+            lbm->per_cpu[thread_index].sticky_ht = 0;
+          }
+      }
+    }
+
+  return 0;
+}
+
+int lb_vip_del_ass_withlock(u32 vip_index, ip46_address_t *addresses, u32 n,
+                            u8 flush)
+{
+  lb_main_t *lbm = &lb_main;
+  u32 now = (u32) vlib_time_now(vlib_get_main());
+  u32 *ip = 0;
+  u32 as_index = 0;
+
+  lb_vip_t *vip;
+  if (!(vip = lb_vip_get_by_index(vip_index))) {
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
+  }
+
+  u32 *indexes = NULL;
+  while (n--) {
+    if (lb_as_find_index_vip(vip, &addresses[n], &as_index)) {
+      vec_free(indexes);
+      return VNET_API_ERROR_NO_SUCH_ENTRY;
+    }
+
+    if (n) {       u32 n2 = n - 1;
+      while(n2--) {
+        if (addresses[n2].as_u64[0] == addresses[n].as_u64[0] &&
+            addresses[n2].as_u64[1] == addresses[n].as_u64[1])
+          goto next;
+      }
+    }
+
+    vec_add1(indexes, as_index);
+next:
+  continue;
+  }
+
+    lb_vip_garbage_collection(vip);
+
+  if (indexes != NULL) {
+    vec_foreach(ip, indexes) {
+      lbm->ass[*ip].flags &= ~LB_AS_FLAGS_USED;
+      lbm->ass[*ip].last_used = now;
+
+      if(flush)
+        {
+          
+          lb_flush_vip_as(vip_index, *ip);
+        }
+    }
+
+        lb_vip_update_new_flow_table(vip);
+  }
+
+  vec_free(indexes);
+  return 0;
+}
+
+int lb_vip_del_ass(u32 vip_index, ip46_address_t *addresses, u32 n, u8 flush)
+{
+  lb_get_writer_lock();
+  int ret = lb_vip_del_ass_withlock(vip_index, addresses, n, flush);
+  lb_put_writer_lock();
+
+  return ret;
+}
+
+static int
+lb_vip_prefix_index_alloc (lb_main_t *lbm)
+{
+  
+  u32 bit;
+
+  bit = clib_bitmap_first_clear (lbm->vip_prefix_indexes);
+
+  lbm->vip_prefix_indexes = clib_bitmap_set(lbm->vip_prefix_indexes, bit, 1);
+
+  return bit;
+}
+
+static int
+lb_vip_prefix_index_free (lb_main_t *lbm, u32 instance)
+{
+
+  if (clib_bitmap_get (lbm->vip_prefix_indexes, instance) == 0)
+    {
+      return -1;
+    }
+
+  lbm->vip_prefix_indexes = clib_bitmap_set (lbm->vip_prefix_indexes,
+                                             instance, 0);
+
+  return 0;
+}
+
+
+static void lb_vip_add_adjacency(lb_main_t *lbm, lb_vip_t *vip,
+                                 u32 *vip_prefix_index)
+{
+  dpo_proto_t proto = 0;
+  dpo_type_t dpo_type = 0;
+  u32 vip_idx = 0;
+
+  if (vip->port != 0)
+    {
+      
+      if (!lb_vip_port_find_diff_port(&(vip->prefix), vip->plen,
+                                      vip->protocol, vip->port, &vip_idx))
+        {
+          lb_vip_t *exists_vip = lb_vip_get_by_index(vip_idx);
+          *vip_prefix_index = exists_vip ? exists_vip->vip_prefix_index : ~0;
+          return;
+        }
+
+      
+      *vip_prefix_index = lb_vip_prefix_index_alloc(lbm);
+    }
+  else
+    {
+      *vip_prefix_index = vip - lbm->vips;
+    }
+
+  dpo_id_t dpo = DPO_INVALID;
+  fib_prefix_t pfx = {};
+  if (lb_vip_is_ip4(vip->type)) {
+      pfx.fp_addr.ip4 = vip->prefix.ip4;
+      pfx.fp_len = vip->plen - 96;
+      pfx.fp_proto = FIB_PROTOCOL_IP4;
+      proto = DPO_PROTO_IP4;
+  } else {
+      pfx.fp_addr.ip6 = vip->prefix.ip6;
+      pfx.fp_len = vip->plen;
+      pfx.fp_proto = FIB_PROTOCOL_IP6;
+      proto = DPO_PROTO_IP6;
+  }
+
+  if (lb_vip_is_gre4(vip))
+    dpo_type = lbm->dpo_gre4_type;
+  else if (lb_vip_is_gre6(vip))
+    dpo_type = lbm->dpo_gre6_type;
+  else if (lb_vip_is_gre4_port(vip))
+    dpo_type = lbm->dpo_gre4_port_type;
+  else if (lb_vip_is_gre6_port(vip))
+    dpo_type = lbm->dpo_gre6_port_type;
+  else if (lb_vip_is_l3dsr(vip))
+    dpo_type = lbm->dpo_l3dsr_type;
+  else if (lb_vip_is_l3dsr_port(vip))
+    dpo_type = lbm->dpo_l3dsr_port_type;
+  else if(lb_vip_is_nat4_port(vip))
+    dpo_type = lbm->dpo_nat4_port_type;
+  else if (lb_vip_is_nat6_port(vip))
+    dpo_type = lbm->dpo_nat6_port_type;
+
+  dpo_set(&dpo, dpo_type, proto, *vip_prefix_index);
+  fib_table_entry_special_dpo_add(0,
+                                  &pfx,
+                                  lb_fib_src,
+                                  FIB_ENTRY_FLAG_EXCLUSIVE,
+                                  &dpo);
+  dpo_reset(&dpo);
+}
+
+
+static int lb_vip_add_port_filter(lb_main_t *lbm, lb_vip_t *vip,
+                                  u32 vip_prefix_index, u32 vip_idx)
+{
+  vip_port_key_t key;
+  clib_bihash_kv_8_8_t kv;
+
+  key.vip_prefix_index = vip_prefix_index;
+  key.protocol = vip->protocol;
+  key.port = clib_host_to_net_u16(vip->port);
+  key.rsv = 0;
+
+  kv.key = key.as_u64;
+  kv.value = vip_idx;
+  clib_bihash_add_del_8_8(&lbm->vip_index_per_port, &kv, 1);
+
+  return 0;
+}
+
+
+static int lb_vip_del_port_filter(lb_main_t *lbm, lb_vip_t *vip)
+{
+  vip_port_key_t key;
+  clib_bihash_kv_8_8_t kv, value;
+  lb_vip_t *m = 0;
+
+  key.vip_prefix_index = vip->vip_prefix_index;
+  key.protocol = vip->protocol;
+  key.port = clib_host_to_net_u16(vip->port);
+  key.rsv = 0;
+
+  kv.key = key.as_u64;
+  if(clib_bihash_search_8_8(&lbm->vip_index_per_port, &kv, &value) != 0)
+    {
+      clib_warning();
+      return VNET_API_ERROR_NO_SUCH_ENTRY;
+    }
+  m = pool_elt_at_index (lbm->vips, value.value);
+  ASSERT (m);
+
+  kv.value = m - lbm->vips;
+  clib_bihash_add_del_8_8(&lbm->vip_index_per_port, &kv, 0);
+
+  return 0;
+}
+
+
+static void lb_vip_del_adjacency(lb_main_t *lbm, lb_vip_t *vip)
+{
+  fib_prefix_t pfx = {};
+  u32 vip_idx = 0;
+
+  if (vip->port != 0)
+    {
+      
+      if (!lb_vip_port_find_diff_port(&(vip->prefix), vip->plen,
+                                      vip->protocol, vip->port, &vip_idx))
+        {
+          lb_put_writer_lock();
+          return;
+        }
+
+      
+      lb_vip_prefix_index_free(lbm, vip->vip_prefix_index);
+
+    }
+
+  if (lb_vip_is_ip4(vip->type)) {
+      pfx.fp_addr.ip4 = vip->prefix.ip4;
+      pfx.fp_len = vip->plen - 96;
+      pfx.fp_proto = FIB_PROTOCOL_IP4;
+  } else {
+      pfx.fp_addr.ip6 = vip->prefix.ip6;
+      pfx.fp_len = vip->plen;
+      pfx.fp_proto = FIB_PROTOCOL_IP6;
+  }
+  fib_table_entry_special_remove(0, &pfx, lb_fib_src);
+}
+
+int lb_vip_add(lb_vip_add_args_t args, u32 *vip_index)
+{
+  lb_main_t *lbm = &lb_main;
+  vlib_main_t *vm = vlib_get_main();
+  lb_vip_t *vip;
+  lb_vip_type_t type = args.type;
+  u32 vip_prefix_index = 0;
+
+  lb_get_writer_lock();
+  ip46_prefix_normalize(&(args.prefix), args.plen);
+
+  if (!lb_vip_port_find_index_with_lock(&(args.prefix), args.plen,
+                                         args.protocol, args.port,
+                                         vip_index))
+    {
+      lb_put_writer_lock();
+      return VNET_API_ERROR_VALUE_EXIST;
+    }
+
+  
+  if ((args.port != 0) &&
+      !lb_vip_port_find_all_port_vip(&(args.prefix), args.plen, vip_index))
+    {
+      lb_put_writer_lock();
+      return VNET_API_ERROR_VALUE_EXIST;
+    }
+
+  
+  if ((args.port == 0) &&
+      !lb_vip_port_find_diff_port(&(args.prefix), args.plen,
+                                  args.protocol, args.port, vip_index))
+    {
+      lb_put_writer_lock();
+      return VNET_API_ERROR_VALUE_EXIST;
+    }
+
+  
+  if ((args.port != 0) &&
+      !lb_vip_port_find_diff_port(&(args.prefix), args.plen,
+                                  args.protocol, args.port, vip_index)
+      && (args.type != lbm->vips[*vip_index].type))
+    {
+      lb_put_writer_lock();
+      return VNET_API_ERROR_INVALID_ARGUMENT;
+    }
+
+  if (!is_pow2(args.new_length)) {
+    lb_put_writer_lock();
+    return VNET_API_ERROR_INVALID_MEMORY_SIZE;
+  }
+
+  if (ip46_prefix_is_ip4(&(args.prefix), args.plen) &&
+      !lb_vip_is_ip4(type)) {
+    lb_put_writer_lock();
+    return VNET_API_ERROR_INVALID_ADDRESS_FAMILY;
+  }
+
+  if ((!ip46_prefix_is_ip4(&(args.prefix), args.plen)) &&
+      !lb_vip_is_ip6(type)) {
+    lb_put_writer_lock();
+    return VNET_API_ERROR_INVALID_ADDRESS_FAMILY;
+  }
+
+  if ((type == LB_VIP_TYPE_IP4_L3DSR) &&
+      (args.encap_args.dscp >= 64) )
+    {
+      lb_put_writer_lock();
+      return VNET_API_ERROR_VALUE_EXIST;
+    }
+
+    pool_get(lbm->vips, vip);
+
+    memcpy (&(vip->prefix), &(args.prefix), sizeof(args.prefix));
+  vip->plen = args.plen;
+  if (args.port != 0)
+    {
+      vip->protocol = args.protocol;
+      vip->port = args.port;
+    }
+  else
+    {
+      vip->protocol = (u8)~0;
+      vip->port = 0;
+    }
+  vip->last_garbage_collection = (u32) vlib_time_now(vlib_get_main());
+  vip->type = args.type;
+
+  if (args.type == LB_VIP_TYPE_IP4_L3DSR) {
+      vip->encap_args.dscp = args.encap_args.dscp;
+    }
+  else if ((args.type == LB_VIP_TYPE_IP4_NAT4)
+           ||(args.type == LB_VIP_TYPE_IP6_NAT6)) {
+      vip->encap_args.srv_type = args.encap_args.srv_type;
+      vip->encap_args.target_port =
+          clib_host_to_net_u16(args.encap_args.target_port);
+    }
+
+  vip->flags = LB_VIP_FLAGS_USED;
+  if (args.src_ip_sticky)
+    {
+      vip->flags |= LB_VIP_FLAGS_SRC_IP_STICKY;
+    }
+  vip->as_indexes = 0;
+
+    u32 i;
+  for (i = 0; i < LB_N_VIP_COUNTERS; i++) {
+    vlib_validate_simple_counter(&lbm->vip_counters[i], vip - lbm->vips);
+    vlib_zero_simple_counter(&lbm->vip_counters[i], vip - lbm->vips);
+  }
+
+    vip->new_flow_table_mask = args.new_length - 1;
+  vip->new_flow_table = 0;
+
+    lb_vip_update_new_flow_table(vip);
+
+    lb_vip_add_adjacency(lbm, vip, &vip_prefix_index);
+
+  if ( (lb_vip_is_nat4_port(vip) || lb_vip_is_nat6_port(vip))
+      && (args.encap_args.srv_type == LB_SRV_TYPE_NODEPORT) )
+    {
+      u32 key;
+      uword * entry;
+
+            key = clib_host_to_net_u16(args.port);
+      entry = hash_get_mem (lbm->vip_index_by_nodeport, &key);
+      if (entry) {
+        lb_put_writer_lock();
+        return VNET_API_ERROR_VALUE_EXIST;
+      }
+
+      hash_set_mem (lbm->vip_index_by_nodeport, &key, vip - lbm->vips);
+
+      
+      udp_register_dst_port (vm, args.port, lb4_nodeport_node.index, 1);
+      udp_register_dst_port (vm, args.port, lb6_nodeport_node.index, 0);
+    }
+
+  *vip_index = vip - lbm->vips;
+    if (args.port != 0)
+    {
+      lb_vip_add_port_filter(lbm, vip, vip_prefix_index, *vip_index);
+      vip->vip_prefix_index = vip_prefix_index;
+    }
+
+  lb_put_writer_lock();
+  return 0;
+}
+
+int lb_vip_del(u32 vip_index)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_vip_t *vip;
+  int rv = 0;
+
+  
+  if (vip_index == 0)
+    return VNET_API_ERROR_INVALID_VALUE;
+
+  lb_get_writer_lock();
+  if (!(vip = lb_vip_get_by_index(vip_index))) {
+    lb_put_writer_lock();
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
+  }
+
+    
+  {
+        ip46_address_t *ass = 0;
+    lb_as_t *as;
+    u32 *as_index;
+
+    pool_foreach (as_index, vip->as_indexes) {
+        as = &lbm->ass[*as_index];
+        vec_add1(ass, as->address);
+    }
+    if (vec_len(ass))
+      lb_vip_del_ass_withlock(vip_index, ass, vec_len(ass), 0);
+    vec_free(ass);
+  }
+
+    lb_vip_del_adjacency(lbm, vip);
+
+    if (vip->port != 0)
+    {
+      rv = lb_vip_del_port_filter(lbm, vip);
+    }
+
+    vip->flags &= ~LB_VIP_FLAGS_USED;
+
+  lb_put_writer_lock();
+  return rv;
+}
+
+
+VLIB_PLUGIN_REGISTER () = {
+    .version = VPP_BUILD_VER,
+    .description = ,
+};
+
+
+u8 *format_lb_dpo (u8 * s, va_list * va)
+{
+  index_t index = va_arg (*va, index_t);
+  CLIB_UNUSED(u32 indent) = va_arg (*va, u32);
+  lb_main_t *lbm = &lb_main;
+  lb_vip_t *vip = pool_elt_at_index (lbm->vips, index);
+  return format (s, , format_lb_vip, vip);
+}
+
+static void lb_dpo_lock (dpo_id_t *dpo) {}
+static void lb_dpo_unlock (dpo_id_t *dpo) {}
+
+static fib_node_t *
+lb_fib_node_get_node (fib_node_index_t index)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_as_t *as = pool_elt_at_index (lbm->ass, index);
+  return (&as->fib_node);
+}
+
+static void
+lb_fib_node_last_lock_gone (fib_node_t *node)
+{
+}
+
+static lb_as_t *
+lb_as_from_fib_node (fib_node_t *node)
+{
+  return ((lb_as_t*)(((char*)node) -
+      STRUCT_OFFSET_OF(lb_as_t, fib_node)));
+}
+
+static void
+lb_as_stack (lb_as_t *as)
+{
+  lb_main_t *lbm = &lb_main;
+  lb_vip_t *vip = &lbm->vips[as->vip_index];
+  dpo_type_t dpo_type = 0;
+
+  if (lb_vip_is_gre4(vip))
+    dpo_type = lbm->dpo_gre4_type;
+  else if (lb_vip_is_gre6(vip))
+    dpo_type = lbm->dpo_gre6_type;
+  else if (lb_vip_is_gre4_port(vip))
+    dpo_type = lbm->dpo_gre4_port_type;
+  else if (lb_vip_is_gre6_port(vip))
+    dpo_type = lbm->dpo_gre6_port_type;
+  else if (lb_vip_is_l3dsr(vip))
+    dpo_type = lbm->dpo_l3dsr_type;
+  else if (lb_vip_is_l3dsr_port(vip))
+    dpo_type = lbm->dpo_l3dsr_port_type;
+  else if(lb_vip_is_nat4_port(vip))
+    dpo_type = lbm->dpo_nat4_port_type;
+  else if (lb_vip_is_nat6_port(vip))
+    dpo_type = lbm->dpo_nat6_port_type;
+
+  dpo_stack(dpo_type,
+            lb_vip_is_ip4(vip->type)?DPO_PROTO_IP4:DPO_PROTO_IP6,
+            &as->dpo,
+            fib_entry_contribute_ip_forwarding(
+                as->next_hop_fib_entry_index));
+}
+
+static fib_node_back_walk_rc_t
+lb_fib_node_back_walk_notify (fib_node_t *node,
+                 fib_node_back_walk_ctx_t *ctx)
+{
+    lb_as_stack(lb_as_from_fib_node(node));
+    return (FIB_NODE_BACK_WALK_CONTINUE);
+}
+
+int lb_nat4_interface_add_del (u32 sw_if_index, int is_del)
+{
+  if (is_del)
+    {
+      vnet_feature_enable_disable (, ,
+                                   sw_if_index, 0, 0, 0);
+    }
+  else
+    {
+      vnet_feature_enable_disable (, ,
+                                   sw_if_index, 1, 0, 0);
+    }
+
+  return 0;
+}
+
+int lb_nat6_interface_add_del (u32 sw_if_index, int is_del)
+{
+  if (is_del)
+    {
+      vnet_feature_enable_disable (, ,
+                                   sw_if_index, 0, 0, 0);
+    }
+  else
+    {
+      vnet_feature_enable_disable (, ,
+                                   sw_if_index, 1, 0, 0);
+    }
+
+  return 0;
+}
+
+clib_error_t *
+lb_init (vlib_main_t * vm)
+{
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
+  lb_main_t *lbm = &lb_main;
+  lbm->vnet_main = vnet_get_main ();
+  lbm->vlib_main = vm;
+
+  lb_vip_t *default_vip;
+  lb_as_t *default_as;
+  fib_node_vft_t lb_fib_node_vft = {
+      .fnv_get = lb_fib_node_get_node,
+      .fnv_last_lock = lb_fib_node_last_lock_gone,
+      .fnv_back_walk = lb_fib_node_back_walk_notify,
+  };
+  dpo_vft_t lb_vft = {
+      .dv_lock = lb_dpo_lock,
+      .dv_unlock = lb_dpo_unlock,
+      .dv_format = format_lb_dpo,
+  };
+
+    lbm->vips = 0;
+  pool_get(lbm->vips, default_vip);
+  default_vip->new_flow_table_mask = 0;
+  default_vip->prefix.ip6.as_u64[0] = 0xffffffffffffffffL;
+  default_vip->prefix.ip6.as_u64[1] = 0xffffffffffffffffL;
+  default_vip->protocol = ~0;
+  default_vip->port = 0;
+  default_vip->flags = LB_VIP_FLAGS_USED;
+
+  lbm->per_cpu = 0;
+  vec_validate(lbm->per_cpu, tm->n_vlib_mains - 1);
+  clib_spinlock_init (&lbm->writer_lock);
+  lbm->per_cpu_sticky_buckets = LB_DEFAULT_PER_CPU_STICKY_BUCKETS;
+  lbm->flow_timeout = LB_DEFAULT_FLOW_TIMEOUT;
+  lbm->ip4_src_address.as_u32 = 0xffffffff;
+  lbm->ip6_src_address.as_u64[0] = 0xffffffffffffffffL;
+  lbm->ip6_src_address.as_u64[1] = 0xffffffffffffffffL;
+  lbm->dpo_gre4_type = dpo_register_new_type(&lb_vft, lb_dpo_gre4_nodes);
+  lbm->dpo_gre6_type = dpo_register_new_type(&lb_vft, lb_dpo_gre6_nodes);
+  lbm->dpo_gre4_port_type = dpo_register_new_type(&lb_vft,
+                                                  lb_dpo_gre4_port_nodes);
+  lbm->dpo_gre6_port_type = dpo_register_new_type(&lb_vft,
+                                                  lb_dpo_gre6_port_nodes);
+  lbm->dpo_l3dsr_type = dpo_register_new_type(&lb_vft,
+                                              lb_dpo_l3dsr_nodes);
+  lbm->dpo_l3dsr_port_type = dpo_register_new_type(&lb_vft,
+                                                   lb_dpo_l3dsr_port_nodes);
+  lbm->dpo_nat4_port_type = dpo_register_new_type(&lb_vft,
+                                                  lb_dpo_nat4_port_nodes);
+  lbm->dpo_nat6_port_type = dpo_register_new_type(&lb_vft,
+                                                  lb_dpo_nat6_port_nodes);
+  lbm->fib_node_type = fib_node_register_new_type (, &lb_fib_node_vft);
+
+    vlib_refcount_init(&lbm->as_refcount);
+
+    lbm->ass = 0;
+  pool_get(lbm->ass, default_as);
+  default_as->flags = 0;
+  default_as->dpo.dpoi_next_node = LB_NEXT_DROP;
+  default_as->vip_index = ~0;
+  default_as->address.ip6.as_u64[0] = 0xffffffffffffffffL;
+  default_as->address.ip6.as_u64[1] = 0xffffffffffffffffL;
+
+  
+  default_vip->as_indexes = NULL;
+  lb_get_writer_lock();
+  lb_vip_update_new_flow_table(default_vip);
+  lb_put_writer_lock();
+
+  lbm->vip_index_by_nodeport
+    = hash_create_mem (0, sizeof(u16), sizeof (uword));
+
+  clib_bihash_init_8_8 (&lbm->vip_index_per_port,
+                        , LB_VIP_PER_PORT_BUCKETS,
+                        LB_VIP_PER_PORT_MEMORY_SIZE);
+
+  clib_bihash_init_8_8 (&lbm->mapping_by_as4,
+                        , LB_MAPPING_BUCKETS,
+                        LB_MAPPING_MEMORY_SIZE);
+
+  clib_bihash_init_24_8 (&lbm->mapping_by_as6,
+                        , LB_MAPPING_BUCKETS,
+                        LB_MAPPING_MEMORY_SIZE);
+
+#define _(a,b,c) lbm->vip_counters[c].name = b;
+  lb_foreach_vip_counter
+#undef _
+
+  lb_fib_src = fib_source_allocate(,
+                                   FIB_SOURCE_PRIORITY_HI,
+                                   FIB_SOURCE_BH_SIMPLE);
+
+  return NULL;
+}
+
+VLIB_INIT_FUNCTION (lb_init);
+
+

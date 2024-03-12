@@ -1,0 +1,1164 @@
+/***  etherencap.cc ***/
+
+/*
+ * etherencap.{cc,hh} -- encapsulates packet in Ethernet header
+ *
+ * Copyright (c) 2000 Massachusetts Institute of Technology
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, subject to the conditions
+ * listed in the Click LICENSE file. These conditions include: you must
+ * preserve this copyright notice, and you cannot mention the copyright
+ * holders in advertising related to the Software without their permission.
+ * The Software is provided WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED. This
+ * notice is a summary of the Click LICENSE file; the license in that file is
+ * legally binding.
+ */
+
+#include <click/config.h>
+#include "etherencap.hh"
+#include <click/etheraddress.hh>
+#include <click/args.hh>
+#include <click/error.hh>
+#include <click/glue.hh>
+CLICK_DECLS
+
+EtherEncap::EtherEncap()
+{
+}
+
+EtherEncap::~EtherEncap()
+{
+}
+
+int
+EtherEncap::configure(Vector<String> &conf, ErrorHandler *errh)
+{
+    uint16_t ether_type;
+    click_ether ethh;
+    if (Args(conf, this, errh)
+    .read_mp("ETHERTYPE", ether_type)
+    .read_mp("SRC", EtherAddressArg(), ethh.ether_shost)
+    .read_mp("DST", EtherAddressArg(), ethh.ether_dhost)
+    .complete() < 0)
+        return -1;
+    ethh.ether_type = htons(ether_type);
+    _ethh = ethh;
+    return 0;
+}
+
+inline Packet *
+EtherEncap::smaction(Packet *p)
+{
+    if (WritablePacket *q = p->push_mac_header(14)) {
+        memcpy(q->data(), &_ethh, 14);
+        return q;
+    }
+
+    return 0;
+}
+
+inline void
+EtherEncap::push(int, Packet *p)
+{
+    if (Packet *q = smaction(p))
+        output(0).push(q);
+}
+
+#if HAVE_BATCH
+void
+EtherEncap::push_batch(int, PacketBatch *batch)
+{
+    EXECUTE_FOR_EACH_PACKET_DROPPABLE(smaction, batch, [](Packet *){});
+    if (batch)
+        output(0).push_batch(batch);
+}
+
+PacketBatch *
+EtherEncap::pull_batch(int port, unsigned max)
+{
+	PacketBatch *batch;
+    MAKE_BATCH(EtherEncap::pull(port), batch, max);
+    return batch;
+}
+
+#endif
+
+Packet *
+EtherEncap::pull(int)
+{
+    if (Packet *p = input(0).pull())
+        return smaction(p);
+    return 0;
+}
+
+void
+EtherEncap::add_handlers()
+{
+    add_data_handlers("src", Handler::h_read, reinterpret_cast<EtherAddress *>(&_ethh.ether_shost));
+    add_write_handler("src", reconfigure_keyword_handler, "1 SRC");
+    add_data_handlers("dst", Handler::h_read, reinterpret_cast<EtherAddress *>(&_ethh.ether_dhost));
+    add_write_handler("dst", reconfigure_keyword_handler, "2 DST");
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+    add_net_order_data_handlers("ethertype", Handler::h_read, &_ethh.ether_type);
+    add_write_handler("ethertype", reconfigure_keyword_handler, "0 ETHERTYPE");
+    add_net_order_data_handlers("etht", Handler::h_read | Handler::h_deprecated, &_ethh.ether_type);
+#pragma GCC diagnostic pop
+    add_write_handler("etht", reconfigure_keyword_handler, "0 ETHERTYPE");
+}
+
+CLICK_ENDDECLS
+EXPORT_ELEMENT(EtherEncap)
+
+
+/***  etherencap.hh ***/
+
+#ifndef CLICK_ETHERENCAP_HH
+#define CLICK_ETHERENCAP_HH
+#include <click/element.hh>
+#include <click/batchelement.hh>
+#include <clicknet/ether.h>
+CLICK_DECLS
+
+/*
+=c
+
+EtherEncap(ETHERTYPE, SRC, DST)
+
+=s ethernet
+
+encapsulates packets in Ethernet header
+
+=d
+
+Encapsulates each packet in the Ethernet header specified by its arguments.
+ETHERTYPE should be in host order.
+
+=e
+
+Encapsulate packets in an Ethernet header with type
+ETHERTYPE_IP (0x0800), source address 1:1:1:1:1:1, and
+destination address 2:2:2:2:2:2:
+
+  EtherEncap(0x0800, 1:1:1:1:1:1, 2:2:2:2:2:2)
+
+=n
+
+For IP packets you probably want to use ARPQuerier instead.
+
+=h src read/write
+
+Return or set the SRC parameter.
+
+=h dst read/write
+
+Return or set the DST parameter.
+
+=h ethertype read/write
+
+Return or set the ETHERTYPE parameter.
+
+=a
+
+EtherVLANEncap, ARPQuerier, EnsureEther, StoreEtherAddress, EtherRewrite */
+
+
+class EtherEncap : public BatchElement {
+    public:
+
+        EtherEncap() CLICK_COLD;
+        ~EtherEncap() CLICK_COLD;
+
+        const char *class_name() const override    { return "EtherEncap"; }
+        const char *port_count() const override    { return PORTS_1_1; }
+
+        int configure(Vector<String> &, ErrorHandler *) CLICK_COLD;
+        bool can_live_reconfigure() const    { return true; }
+        void add_handlers() CLICK_COLD;
+
+        inline Packet *smaction(Packet *);
+
+        Packet *pull(int) override;
+        void push      (int, Packet*) override;
+    #if HAVE_BATCH
+        void push_batch(int, PacketBatch*) override;
+        PacketBatch *pull_batch(int,unsigned) override;
+    #endif
+
+    private:
+
+        click_ether _ethh;
+};
+
+CLICK_ENDDECLS
+#endif
+
+
+/***  EtherEncap_llvm.txt ***/
+
+define dso_local void @_ZN10EtherEncapC2Ev(%class.EnsureEther* %0) unnamed_addr #2 align 2 {
+  %2 = getelementptr %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 0
+  %3 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 1
+  %4 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 2
+  store i8 0, i8* %4, align 4, !tbaa !20277
+  %5 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %6 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %5, i64 0, i32 0
+  store %class.Element* null, %class.Element** %6, align 8, !tbaa !20278
+  %7 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 0, i32 1
+  store i32 -2, i32* %7, align 8, !tbaa !20280
+  %8 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 0
+  store %class.Element* null, %class.Element** %8, align 8, !tbaa !20278
+  %9 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 1
+  store i32 -2, i32* %9, align 8, !tbaa !20280
+  %10 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 0
+  store %class.Element* null, %class.Element** %10, align 8, !tbaa !20278
+  %11 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 1
+  store i32 -2, i32* %11, align 8, !tbaa !20280
+  %12 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 0
+  store %class.Element* null, %class.Element** %12, align 8, !tbaa !20278
+  %13 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 1
+  store i32 -2, i32* %13, align 8, !tbaa !20280
+  %14 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 7
+  store %class.Router* null, %class.Router** %14, align 8, !tbaa !20281
+  %15 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 8
+  store i32 -1, i32* %15, align 8, !tbaa !20282
+  %16 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 10
+  %17 = bitcast %class.Vector* %16 to i8*
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(17) %17, i8 0, i64 17, i1 false) #34
+  %18 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %19 = add nsw i32 %18, 1
+  store i32 %19, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %20 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %21 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %22 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  store i32 0, i32* %22, align 4, !tbaa !20283
+  %23 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6, i64 0
+  store i32 0, i32* %23, align 8, !tbaa !20283
+  store i32 1, i32* %3, align 8, !tbaa !20267
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [39 x i8*] }, { [39 x i8*] }* @_ZTV10EtherEncap, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  ret void
+}
+
+define dso_local void @_ZN10EtherEncapD2Ev(%class.EnsureEther* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define dso_local void @_ZN10EtherEncapD0Ev(%class.EnsureEther* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define internal void @_ZN10EtherEncap4pushEiP6Packet(%class.EnsureEther* nocapture readonly %0, i32 %1, %class.Packet* %2) unnamed_addr #10 comdat align 2 {
+  %4 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 3
+  %5 = bitcast i8** %4 to i64*
+  %6 = load i64, i64* %5, align 8, !tbaa !20399
+  %7 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 2
+  %8 = bitcast i8** %7 to i64*
+  %9 = load i64, i64* %8, align 8, !tbaa !21043
+  %10 = sub i64 %6, %9
+  %11 = trunc i64 %10 to i32
+  %12 = icmp ult i32 %11, 14
+  %13 = inttoptr i64 %6 to i8*
+  br i1 %12, label %25, label %14
+
+14:                                               ; preds = %3
+  %15 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 1
+  %16 = load %class.Packet*, %class.Packet** %15, align 8, !tbaa !20801
+  %17 = icmp eq %class.Packet* %16, null
+  br i1 %17, label %18, label %.thread
+
+18:                                               ; preds = %14
+  %19 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 0, i32 0
+  %20 = load volatile i32, i32* %19, align 4, !tbaa !20799
+  %21 = icmp ugt i32 %20, 1
+  br i1 %21, label %.thread, label %22
+
+22:                                               ; preds = %18
+  %23 = bitcast %class.Packet* %2 to %class.WritablePacket*
+  %24 = getelementptr inbounds i8, i8* %13, i64 -14
+  store i8* %24, i8** %4, align 8, !tbaa !20399
+  br label %47
+
+25:                                               ; preds = %3
+  %26 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4
+  %27 = icmp slt i32 %26, 5
+  %28 = and i1 %27, %12
+  br i1 %28, label %29, label %.thread
+
+29:                                               ; preds = %25
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([42 x i8], [42 x i8]* @.str.2.13909, i64 0, i64 0), i32 %11, i32 14)
+  %30 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  %31 = add nsw i32 %30, 1
+  store i32 %31, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  br label %.thread
+
+.thread:                                          ; preds = %29, %25, %18, %14
+  %32 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 5
+  %33 = bitcast i8** %32 to i64*
+  %34 = load i64, i64* %33, align 8, !tbaa !21044
+  %35 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 4
+  %36 = bitcast i8** %35 to i64*
+  %37 = load i64, i64* %36, align 8, !tbaa !20396
+  %38 = sub i64 %34, %37
+  %39 = trunc i64 %38 to i32
+  %40 = icmp slt i32 %39, 140
+  %41 = select i1 %40, i32 0, i32 -140
+  %42 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %2, i32 140, i32 %41, i1 zeroext true)
+  %43 = icmp eq %class.WritablePacket* %42, null
+  br i1 %43, label %_ZN6Packet14expensive_pushEj.exit.thread, label %_ZN6Packet14expensive_pushEj.exit
+
+_ZN6Packet14expensive_pushEj.exit:                ; preds = %.thread
+  %44 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %42, i64 0, i32 0, i32 3
+  %45 = load i8*, i8** %44, align 8, !tbaa !20399
+  %46 = getelementptr inbounds i8, i8* %45, i64 -14
+  store i8* %46, i8** %44, align 8, !tbaa !20399
+  br label %47
+
+47:                                               ; preds = %_ZN6Packet14expensive_pushEj.exit, %22
+  %48 = phi i8* [ %46, %_ZN6Packet14expensive_pushEj.exit ], [ %24, %22 ]
+  %49 = phi %class.WritablePacket* [ %42, %_ZN6Packet14expensive_pushEj.exit ], [ %23, %22 ]
+  %50 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %49, i64 0, i32 0, i32 2
+  %51 = load i8*, i8** %50, align 8, !tbaa !21043
+  %52 = icmp ugt i8* %51, %48
+  br i1 %52, label %58, label %53
+
+53:                                               ; preds = %47
+  %54 = getelementptr inbounds i8, i8* %48, i64 14
+  %55 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %49, i64 0, i32 0, i32 5
+  %56 = load i8*, i8** %55, align 8, !tbaa !21044
+  %57 = icmp ugt i8* %54, %56
+  br i1 %57, label %58, label %59
+
+58:                                               ; preds = %53, %47
+  tail call void @__assert_fail(i8* getelementptr inbounds ([41 x i8], [41 x i8]* @.str.4.14495, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.5.14496, i64 0, i64 0), i32 2299, i8* getelementptr inbounds ([61 x i8], [61 x i8]* @__PRETTY_FUNCTION__._ZN6Packet14set_mac_headerEPKhj.10682, i64 0, i64 0)) #57
+  unreachable
+
+59:                                               ; preds = %53
+  %60 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %49, i64 0, i32 0, i32 6, i32 1
+  store i8* %48, i8** %60, align 8, !tbaa !21413
+  %61 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %49, i64 0, i32 0, i32 6, i32 2
+  store i8* %54, i8** %61, align 8, !tbaa !20400
+  %62 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 1, i32 0, i64 0
+  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(14) %48, i8* nonnull align 1 dereferenceable(14) %62, i64 14, i1 false)
+  %63 = getelementptr %class.WritablePacket, %class.WritablePacket* %49, i64 0, i32 0
+  %64 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  %65 = load i32, i32* %64, align 4, !tbaa !20283
+  %66 = icmp eq i32 %65, 0
+  br i1 %66, label %67, label %68
+
+67:                                               ; preds = %59
+  tail call void @__assert_fail(i8* getelementptr inbounds ([47 x i8], [47 x i8]* @.str.56.14329, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 568, i8* getelementptr inbounds ([52 x i8], [52 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4portEbi.14331, i64 0, i64 0)) #57
+  unreachable
+
+68:                                               ; preds = %59
+  %69 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %70 = load %"class.Element::Port"*, %"class.Element::Port"** %69, align 8, !tbaa !20284
+  %71 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %70, i64 0, i32 0
+  %72 = load %class.Element*, %class.Element** %71, align 8, !tbaa !20278
+  %73 = icmp eq %class.Element* %72, null
+  br i1 %73, label %74, label %75
+
+74:                                               ; preds = %68
+  tail call void @__assert_fail(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str.58.14334, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 767, i8* getelementptr inbounds ([41 x i8], [41 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4Port4pushEP6Packet.14335, i64 0, i64 0)) #57
+  unreachable
+
+75:                                               ; preds = %68
+  %76 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %70, i64 0, i32 1
+  %77 = load i32, i32* %76, align 8, !tbaa !20280
+  %78 = bitcast %class.Element* %72 to void (%class.Element*, i32, %class.Packet*)***
+  %79 = load void (%class.Element*, i32, %class.Packet*)**, void (%class.Element*, i32, %class.Packet*)*** %78, align 8, !tbaa !20285
+  %80 = getelementptr inbounds void (%class.Element*, i32, %class.Packet*)*, void (%class.Element*, i32, %class.Packet*)** %79, i64 2
+  %81 = load void (%class.Element*, i32, %class.Packet*)*, void (%class.Element*, i32, %class.Packet*)** %80, align 8
+  tail call void %81(%class.Element* nonnull %72, i32 %77, %class.Packet* nonnull %63)
+  br label %_ZN6Packet14expensive_pushEj.exit.thread
+
+_ZN6Packet14expensive_pushEj.exit.thread:         ; preds = %75, %.thread
+  ret void
+}
+
+define dso_local %class.Packet* @_ZN10EtherEncap4pullEi(%class.EnsureEther* nocapture readonly %0, i32 %1) unnamed_addr #0 align 2 {
+  %3 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6, i64 0
+  %4 = load i32, i32* %3, align 4, !tbaa !20283
+  %5 = icmp eq i32 %4, 0
+  br i1 %5, label %6, label %7
+
+6:                                                ; preds = %2
+  tail call void @__assert_fail(i8* getelementptr inbounds ([47 x i8], [47 x i8]* @.str.56.14329, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 568, i8* getelementptr inbounds ([52 x i8], [52 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4portEbi.14331, i64 0, i64 0)) #57
+  unreachable
+
+7:                                                ; preds = %2
+  %8 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %9 = load %"class.Element::Port"*, %"class.Element::Port"** %8, align 8, !tbaa !20284
+  %10 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %9, i64 0, i32 0
+  %11 = load %class.Element*, %class.Element** %10, align 8, !tbaa !20278
+  %12 = icmp eq %class.Element* %11, null
+  br i1 %12, label %13, label %14
+
+13:                                               ; preds = %7
+  tail call void @__assert_fail(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.59.14332, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 843, i8* getelementptr inbounds ([36 x i8], [36 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4Port4pullEv.14333, i64 0, i64 0)) #57
+  unreachable
+
+14:                                               ; preds = %7
+  %15 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %9, i64 0, i32 1
+  %16 = load i32, i32* %15, align 8, !tbaa !20280
+  %17 = bitcast %class.Element* %11 to %class.Packet* (%class.Element*, i32)***
+  %18 = load %class.Packet* (%class.Element*, i32)**, %class.Packet* (%class.Element*, i32)*** %17, align 8, !tbaa !20285
+  %19 = getelementptr inbounds %class.Packet* (%class.Element*, i32)*, %class.Packet* (%class.Element*, i32)** %18, i64 3
+  %20 = load %class.Packet* (%class.Element*, i32)*, %class.Packet* (%class.Element*, i32)** %19, align 8
+  %21 = tail call %class.Packet* %20(%class.Element* nonnull %11, i32 %16)
+  %22 = icmp eq %class.Packet* %21, null
+  br i1 %22, label %_ZN6Packet14expensive_pushEj.exit.thread, label %23
+
+23:                                               ; preds = %14
+  %24 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 3
+  %25 = bitcast i8** %24 to i64*
+  %26 = load i64, i64* %25, align 8, !tbaa !20399
+  %27 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 2
+  %28 = bitcast i8** %27 to i64*
+  %29 = load i64, i64* %28, align 8, !tbaa !21043
+  %30 = sub i64 %26, %29
+  %31 = trunc i64 %30 to i32
+  %32 = icmp ult i32 %31, 14
+  %33 = inttoptr i64 %26 to i8*
+  br i1 %32, label %45, label %34
+
+34:                                               ; preds = %23
+  %35 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 1
+  %36 = load %class.Packet*, %class.Packet** %35, align 8, !tbaa !20801
+  %37 = icmp eq %class.Packet* %36, null
+  br i1 %37, label %38, label %.thread
+
+38:                                               ; preds = %34
+  %39 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 0, i32 0
+  %40 = load volatile i32, i32* %39, align 4, !tbaa !20799
+  %41 = icmp ugt i32 %40, 1
+  br i1 %41, label %.thread, label %42
+
+42:                                               ; preds = %38
+  %43 = bitcast %class.Packet* %21 to %class.WritablePacket*
+  %44 = getelementptr inbounds i8, i8* %33, i64 -14
+  store i8* %44, i8** %24, align 8, !tbaa !20399
+  br label %67
+
+45:                                               ; preds = %23
+  %46 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4
+  %47 = icmp slt i32 %46, 5
+  %48 = and i1 %47, %32
+  br i1 %48, label %49, label %.thread
+
+49:                                               ; preds = %45
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([42 x i8], [42 x i8]* @.str.2.13909, i64 0, i64 0), i32 %31, i32 14)
+  %50 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  %51 = add nsw i32 %50, 1
+  store i32 %51, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  br label %.thread
+
+.thread:                                          ; preds = %49, %45, %38, %34
+  %52 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 5
+  %53 = bitcast i8** %52 to i64*
+  %54 = load i64, i64* %53, align 8, !tbaa !21044
+  %55 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 4
+  %56 = bitcast i8** %55 to i64*
+  %57 = load i64, i64* %56, align 8, !tbaa !20396
+  %58 = sub i64 %54, %57
+  %59 = trunc i64 %58 to i32
+  %60 = icmp slt i32 %59, 140
+  %61 = select i1 %60, i32 0, i32 -140
+  %62 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %21, i32 140, i32 %61, i1 zeroext true)
+  %63 = icmp eq %class.WritablePacket* %62, null
+  br i1 %63, label %_ZN6Packet14expensive_pushEj.exit.thread, label %_ZN6Packet14expensive_pushEj.exit
+
+_ZN6Packet14expensive_pushEj.exit:                ; preds = %.thread
+  %64 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %62, i64 0, i32 0, i32 3
+  %65 = load i8*, i8** %64, align 8, !tbaa !20399
+  %66 = getelementptr inbounds i8, i8* %65, i64 -14
+  store i8* %66, i8** %64, align 8, !tbaa !20399
+  br label %67
+
+67:                                               ; preds = %_ZN6Packet14expensive_pushEj.exit, %42
+  %68 = phi i8* [ %66, %_ZN6Packet14expensive_pushEj.exit ], [ %44, %42 ]
+  %69 = phi %class.WritablePacket* [ %62, %_ZN6Packet14expensive_pushEj.exit ], [ %43, %42 ]
+  %70 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %69, i64 0, i32 0, i32 2
+  %71 = load i8*, i8** %70, align 8, !tbaa !21043
+  %72 = icmp ugt i8* %71, %68
+  br i1 %72, label %78, label %73
+
+73:                                               ; preds = %67
+  %74 = getelementptr inbounds i8, i8* %68, i64 14
+  %75 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %69, i64 0, i32 0, i32 5
+  %76 = load i8*, i8** %75, align 8, !tbaa !21044
+  %77 = icmp ugt i8* %74, %76
+  br i1 %77, label %78, label %79
+
+78:                                               ; preds = %73, %67
+  tail call void @__assert_fail(i8* getelementptr inbounds ([41 x i8], [41 x i8]* @.str.4.14495, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.5.14496, i64 0, i64 0), i32 2299, i8* getelementptr inbounds ([61 x i8], [61 x i8]* @__PRETTY_FUNCTION__._ZN6Packet14set_mac_headerEPKhj.10682, i64 0, i64 0)) #57
+  unreachable
+
+79:                                               ; preds = %73
+  %80 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %69, i64 0, i32 0, i32 6, i32 1
+  store i8* %68, i8** %80, align 8, !tbaa !21413
+  %81 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %69, i64 0, i32 0, i32 6, i32 2
+  store i8* %74, i8** %81, align 8, !tbaa !20400
+  %82 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 1, i32 0, i64 0
+  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(14) %68, i8* nonnull align 1 dereferenceable(14) %82, i64 14, i1 false)
+  %83 = getelementptr %class.WritablePacket, %class.WritablePacket* %69, i64 0, i32 0
+  br label %_ZN6Packet14expensive_pushEj.exit.thread
+
+_ZN6Packet14expensive_pushEj.exit.thread:         ; preds = %79, %.thread, %14
+  %84 = phi %class.Packet* [ null, %14 ], [ %83, %79 ], [ null, %.thread ]
+  ret %class.Packet* %84
+}
+
+define dso_local void @_ZN10EtherEncap10push_batchEiP11PacketBatch(%class.EnsureEther* nocapture readonly %0, i32 %1, %class.PacketBatch* %2) unnamed_addr #0 align 2 {
+  %4 = icmp eq %class.PacketBatch* %2, null
+  br i1 %4, label %5, label %9
+
+5:                                                ; preds = %3
+  %6 = load i16, i16* inttoptr (i64 72 to i16*), align 8, !tbaa !20287
+  %7 = icmp eq i16 %6, 0
+  br i1 %7, label %8, label %138
+
+8:                                                ; preds = %5
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+9:                                                ; preds = %3
+  %10 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 48, i32 0
+  %11 = getelementptr inbounds i8, i8* %10, i64 24
+  %12 = bitcast i8* %11 to i16*
+  %13 = load i16, i16* %12, align 2, !tbaa !20287
+  %14 = icmp eq i16 %13, 0
+  br i1 %14, label %15, label %16
+
+15:                                               ; preds = %9
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+16:                                               ; preds = %9
+  %17 = zext i16 %13 to i32
+  %18 = bitcast %class.PacketBatch* %2 to %class.Packet*
+  %19 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 136
+  %20 = bitcast %class.PacketBatch* %19 to %class.Packet**
+  %21 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 1, i32 0, i64 0
+  br label %22
+
+22:                                               ; preds = %107, %16
+  %23 = phi %class.PacketBatch* [ %2, %16 ], [ %110, %107 ]
+  %24 = phi i32 [ %17, %16 ], [ %109, %107 ]
+  %25 = phi %class.Packet* [ null, %16 ], [ %108, %107 ]
+  %26 = phi %class.Packet* [ %18, %16 ], [ %28, %107 ]
+  %27 = phi %class.Packet** [ %20, %16 ], [ %112, %107 ]
+  %28 = load %class.Packet*, %class.Packet** %27, align 8, !tbaa !20284
+  %29 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 3
+  %30 = bitcast i8** %29 to i64*
+  %31 = load i64, i64* %30, align 8, !tbaa !20399
+  %32 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 2
+  %33 = bitcast i8** %32 to i64*
+  %34 = load i64, i64* %33, align 8, !tbaa !21043
+  %35 = sub i64 %31, %34
+  %36 = trunc i64 %35 to i32
+  %37 = icmp ult i32 %36, 14
+  %38 = inttoptr i64 %31 to i8*
+  br i1 %37, label %50, label %39
+
+39:                                               ; preds = %22
+  %40 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 1
+  %41 = load %class.Packet*, %class.Packet** %40, align 8, !tbaa !20801
+  %42 = icmp eq %class.Packet* %41, null
+  br i1 %42, label %43, label %.thread
+
+43:                                               ; preds = %39
+  %44 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 0, i32 0
+  %45 = load volatile i32, i32* %44, align 4, !tbaa !20799
+  %46 = icmp ugt i32 %45, 1
+  br i1 %46, label %.thread, label %47
+
+47:                                               ; preds = %43
+  %48 = bitcast %class.Packet* %26 to %class.WritablePacket*
+  %49 = getelementptr inbounds i8, i8* %38, i64 -14
+  store i8* %49, i8** %29, align 8, !tbaa !20399
+  br label %72
+
+50:                                               ; preds = %22
+  %51 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4
+  %52 = icmp slt i32 %51, 5
+  %53 = and i1 %52, %37
+  br i1 %53, label %54, label %.thread
+
+54:                                               ; preds = %50
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([42 x i8], [42 x i8]* @.str.2.13909, i64 0, i64 0), i32 %36, i32 14)
+  %55 = load i32, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  %56 = add nsw i32 %55, 1
+  store i32 %56, i32* @_ZZN6Packet14expensive_pushEjE7chatter, align 4, !tbaa !20283
+  br label %.thread
+
+.thread:                                          ; preds = %54, %50, %43, %39
+  %57 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 5
+  %58 = bitcast i8** %57 to i64*
+  %59 = load i64, i64* %58, align 8, !tbaa !21044
+  %60 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 4
+  %61 = bitcast i8** %60 to i64*
+  %62 = load i64, i64* %61, align 8, !tbaa !20396
+  %63 = sub i64 %59, %62
+  %64 = trunc i64 %63 to i32
+  %65 = icmp slt i32 %64, 140
+  %66 = select i1 %65, i32 0, i32 -140
+  %67 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %26, i32 140, i32 %66, i1 zeroext true)
+  %68 = icmp eq %class.WritablePacket* %67, null
+  br i1 %68, label %84, label %_ZN6Packet14expensive_pushEj.exit
+
+_ZN6Packet14expensive_pushEj.exit:                ; preds = %.thread
+  %69 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %67, i64 0, i32 0, i32 3
+  %70 = load i8*, i8** %69, align 8, !tbaa !20399
+  %71 = getelementptr inbounds i8, i8* %70, i64 -14
+  store i8* %71, i8** %69, align 8, !tbaa !20399
+  br label %72
+
+72:                                               ; preds = %_ZN6Packet14expensive_pushEj.exit, %47
+  %73 = phi i8* [ %71, %_ZN6Packet14expensive_pushEj.exit ], [ %49, %47 ]
+  %74 = phi %class.WritablePacket* [ %67, %_ZN6Packet14expensive_pushEj.exit ], [ %48, %47 ]
+  %75 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0, i32 2
+  %76 = load i8*, i8** %75, align 8, !tbaa !21043
+  %77 = icmp ugt i8* %76, %73
+  br i1 %77, label %83, label %78
+
+78:                                               ; preds = %72
+  %79 = getelementptr inbounds i8, i8* %73, i64 14
+  %80 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0, i32 5
+  %81 = load i8*, i8** %80, align 8, !tbaa !21044
+  %82 = icmp ugt i8* %79, %81
+  br i1 %82, label %83, label %93
+
+83:                                               ; preds = %78, %72
+  tail call void @__assert_fail(i8* getelementptr inbounds ([41 x i8], [41 x i8]* @.str.4.14495, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.5.14496, i64 0, i64 0), i32 2299, i8* getelementptr inbounds ([61 x i8], [61 x i8]* @__PRETTY_FUNCTION__._ZN6Packet14set_mac_headerEPKhj.10682, i64 0, i64 0)) #57
+  unreachable
+
+84:                                               ; preds = %.thread
+  %85 = icmp eq %class.Packet* %25, null
+  br i1 %85, label %88, label %86
+
+86:                                               ; preds = %84
+  %87 = getelementptr inbounds %class.Packet, %class.Packet* %25, i64 0, i32 6, i32 6
+  store %class.Packet* %28, %class.Packet** %87, align 8, !tbaa !20337
+  br label %90
+
+88:                                               ; preds = %84
+  %89 = bitcast %class.Packet* %28 to %class.PacketBatch*
+  br label %90
+
+90:                                               ; preds = %88, %86
+  %91 = phi %class.PacketBatch* [ %23, %86 ], [ %89, %88 ]
+  %92 = add nsw i32 %24, -1
+  br label %107
+
+93:                                               ; preds = %78
+  %94 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0, i32 6, i32 1
+  store i8* %73, i8** %94, align 8, !tbaa !21413
+  %95 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0, i32 6, i32 2
+  store i8* %79, i8** %95, align 8, !tbaa !20400
+  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(14) %73, i8* nonnull align 1 dereferenceable(14) %21, i64 14, i1 false)
+  %96 = getelementptr %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0
+  %97 = icmp eq %class.Packet* %96, %26
+  br i1 %97, label %107, label %98
+
+98:                                               ; preds = %93
+  %99 = icmp eq %class.Packet* %25, null
+  br i1 %99, label %102, label %100
+
+100:                                              ; preds = %98
+  %101 = getelementptr inbounds %class.Packet, %class.Packet* %25, i64 0, i32 6, i32 6
+  store %class.Packet* %96, %class.Packet** %101, align 8, !tbaa !20337
+  br label %104
+
+102:                                              ; preds = %98
+  %103 = bitcast %class.WritablePacket* %74 to %class.PacketBatch*
+  br label %104
+
+104:                                              ; preds = %102, %100
+  %105 = phi %class.PacketBatch* [ %23, %100 ], [ %103, %102 ]
+  %106 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %74, i64 0, i32 0, i32 6, i32 6
+  store %class.Packet* %28, %class.Packet** %106, align 8, !tbaa !20337
+  br label %107
+
+107:                                              ; preds = %104, %93, %90
+  %108 = phi %class.Packet* [ %25, %90 ], [ %26, %93 ], [ %96, %104 ]
+  %109 = phi i32 [ %92, %90 ], [ %24, %93 ], [ %24, %104 ]
+  %110 = phi %class.PacketBatch* [ %91, %90 ], [ %23, %93 ], [ %105, %104 ]
+  %111 = icmp eq %class.Packet* %28, null
+  %112 = getelementptr inbounds %class.Packet, %class.Packet* %28, i64 0, i32 6, i32 6
+  br i1 %111, label %113, label %22
+
+113:                                              ; preds = %107
+  %114 = icmp eq %class.PacketBatch* %110, null
+  br i1 %114, label %138, label %115
+
+115:                                              ; preds = %113
+  %116 = trunc i32 %109 to i16
+  %117 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %110, i64 48, i32 0
+  %118 = getelementptr inbounds i8, i8* %117, i64 24
+  %119 = bitcast i8* %118 to i16*
+  store i16 %116, i16* %119, align 2, !tbaa !20287
+  %120 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %110, i64 144
+  %121 = bitcast %class.PacketBatch* %120 to %class.Packet**
+  store %class.Packet* %108, %class.Packet** %121, align 8, !tbaa !20334
+  %122 = getelementptr inbounds %class.Packet, %class.Packet* %108, i64 0, i32 6, i32 6
+  store %class.Packet* null, %class.Packet** %122, align 8, !tbaa !20337
+  %123 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  %124 = load i32, i32* %123, align 4, !tbaa !20283
+  %125 = icmp eq i32 %124, 0
+  br i1 %125, label %126, label %127
+
+126:                                              ; preds = %115
+  tail call void @__assert_fail(i8* getelementptr inbounds ([47 x i8], [47 x i8]* @.str.56.14329, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 568, i8* getelementptr inbounds ([52 x i8], [52 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4portEbi.14331, i64 0, i64 0)) #57
+  unreachable
+
+127:                                              ; preds = %115
+  %128 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %129 = load %"class.Element::Port"*, %"class.Element::Port"** %128, align 8, !tbaa !20284
+  %130 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %129, i64 0, i32 0
+  %131 = load %class.Element*, %class.Element** %130, align 8, !tbaa !20278
+  %132 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %129, i64 0, i32 1
+  %133 = load i32, i32* %132, align 8, !tbaa !20280
+  %134 = bitcast %class.Element* %131 to void (%class.Element*, i32, %class.PacketBatch*)***
+  %135 = load void (%class.Element*, i32, %class.PacketBatch*)**, void (%class.Element*, i32, %class.PacketBatch*)*** %134, align 8, !tbaa !20285
+  %136 = getelementptr inbounds void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %135, i64 5
+  %137 = load void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %136, align 8
+  tail call void %137(%class.Element* %131, i32 %133, %class.PacketBatch* nonnull %110)
+  br label %138
+
+138:                                              ; preds = %127, %113, %5
+  ret void
+}
+
+define dso_local %class.PacketBatch* @_ZN10EtherEncap10pull_batchEij(%class.EnsureEther* nocapture readonly %0, i32 %1, i32 %2) unnamed_addr #0 align 2 {
+  %4 = tail call %class.Packet* @_ZN10EtherEncap4pullEi(%class.EnsureEther* %0, i32 undef)
+  %5 = bitcast %class.Packet* %4 to %class.PacketBatch*
+  %6 = icmp eq %class.Packet* %4, null
+  br i1 %6, label %26, label %7
+
+7:                                                ; preds = %3
+  %8 = icmp eq i32 %2, 0
+  %9 = select i1 %8, i32 256, i32 %2
+  %10 = icmp ugt i32 %9, 1
+  br i1 %10, label %.preheader, label %.loopexit
+
+.preheader:                                       ; preds = %15, %7
+  %11 = phi %class.Packet* [ %13, %15 ], [ %4, %7 ]
+  %12 = phi i32 [ %17, %15 ], [ 1, %7 ]
+  %13 = tail call %class.Packet* @_ZN10EtherEncap4pullEi(%class.EnsureEther* %0, i32 undef)
+  %14 = icmp eq %class.Packet* %13, null
+  br i1 %14, label %.loopexit, label %15
+
+15:                                               ; preds = %.preheader
+  %16 = getelementptr inbounds %class.Packet, %class.Packet* %11, i64 0, i32 6, i32 6
+  store %class.Packet* %13, %class.Packet** %16, align 8, !tbaa !20337
+  %17 = add nuw i32 %12, 1
+  %18 = icmp eq i32 %17, %9
+  br i1 %18, label %.loopexit, label %.preheader
+
+.loopexit:                                        ; preds = %15, %.preheader, %7
+  %19 = phi i32 [ 1, %7 ], [ %9, %15 ], [ %12, %.preheader ]
+  %20 = phi %class.Packet* [ %4, %7 ], [ %13, %15 ], [ %11, %.preheader ]
+  %21 = trunc i32 %19 to i16
+  %22 = getelementptr inbounds %class.Packet, %class.Packet* %4, i64 0, i32 6, i32 0, i32 0, i64 3
+  %23 = bitcast i64* %22 to i16*
+  store i16 %21, i16* %23, align 2, !tbaa !20287
+  %24 = getelementptr inbounds %class.Packet, %class.Packet* %4, i64 0, i32 6, i32 7
+  store %class.Packet* %20, %class.Packet** %24, align 8, !tbaa !20334
+  %25 = getelementptr inbounds %class.Packet, %class.Packet* %20, i64 0, i32 6, i32 6
+  store %class.Packet* null, %class.Packet** %25, align 8, !tbaa !20337
+  br label %26
+
+26:                                               ; preds = %.loopexit, %3
+  ret %class.PacketBatch* %5
+}
+
+define internal i8* @_ZNK10EtherEncap10class_nameEv(%class.EnsureEther* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str.63.13067, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK10EtherEncap10port_countEv(%class.EnsureEther* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([2 x i8], [2 x i8]* @_ZN7Element9PORTS_1_1E, i64 0, i64 0)
+}
+
+define dso_local i32 @_ZN10EtherEncap9configureER6VectorI6StringLm16EEP12ErrorHandler(%class.EnsureEther* %0, %class.Vector.0* dereferenceable(16) %1, %class.ErrorHandler* %2) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %4 = alloca i16, align 2
+  %5 = alloca %struct.click_ether, align 1
+  %6 = alloca %class.Args, align 8
+  %7 = bitcast i16* %4 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 2, i8* nonnull %7) #34
+  %8 = getelementptr inbounds %struct.click_ether, %struct.click_ether* %5, i64 0, i32 0, i64 0
+  call void @llvm.lifetime.start.p0i8(i64 14, i8* nonnull %8) #34
+  %9 = bitcast %class.Args* %6 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 112, i8* nonnull %9) #34
+  %10 = bitcast %class.Args* %6 to %class.EnsureEther**
+  store %class.EnsureEther* %0, %class.EnsureEther** %10, align 8, !tbaa !20294
+  %11 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 1
+  store %class.ErrorHandler* %2, %class.ErrorHandler** %11, align 8, !tbaa !20296
+  %12 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 2
+  store i8* null, i8** %12, align 8, !tbaa !20297
+  %13 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 3
+  store i8 0, i8* %13, align 8, !tbaa !20298
+  %14 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 5
+  %15 = bitcast %class.Vector.2* %14 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(16) %15, i8 0, i64 16, i1 false) #34
+  invoke void @_ZN4Args10initializeEPK6VectorI6StringLm16EE(%class.Args* nonnull %6, %class.Vector.0* nonnull %1)
+          to label %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit unwind label %16
+
+16:                                               ; preds = %3
+  %17 = landingpad { i8*, i32 }
+          cleanup
+  %18 = bitcast %class.Vector.2* %14 to i8**
+  %19 = load i8*, i8** %18, align 8, !tbaa !20299
+  %20 = icmp eq i8* %19, null
+  br i1 %20, label %22, label %21
+
+21:                                               ; preds = %16
+  call void @_ZdaPv(i8* nonnull %19) #55
+  br label %22
+
+22:                                               ; preds = %21, %16
+  resume { i8*, i32 } %17
+
+_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit: ; preds = %3
+  invoke fastcc void @_Z14args_base_readItEvP4ArgsPKciRT_(%class.Args* nonnull %6, i8* getelementptr inbounds ([10 x i8], [10 x i8]* @.str.4.2576, i64 0, i64 0), i32 3, i16* nonnull dereferenceable(2) %4)
+          to label %23 unwind label %.loopexit.split-lp
+
+23:                                               ; preds = %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  %24 = getelementptr inbounds %struct.click_ether, %struct.click_ether* %5, i64 0, i32 1
+  invoke fastcc void @_Z14args_base_readI15EtherAddressArgA6_hEvP4ArgsPKciT_RT0_(%class.Args* nonnull %6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.8714, i64 0, i64 0), i32 3, [6 x i8]* nonnull dereferenceable(6) %24)
+          to label %25 unwind label %.loopexit.split-lp
+
+25:                                               ; preds = %23
+  %26 = getelementptr inbounds %struct.click_ether, %struct.click_ether* %5, i64 0, i32 0
+  invoke fastcc void @_Z14args_base_readI15EtherAddressArgA6_hEvP4ArgsPKciT_RT0_(%class.Args* nonnull %6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.1.12088, i64 0, i64 0), i32 3, [6 x i8]* nonnull dereferenceable(6) %26)
+          to label %27 unwind label %.loopexit.split-lp
+
+27:                                               ; preds = %25
+  invoke void @_ZN4Args14check_completeEv(%class.Args* nonnull %6)
+          to label %.noexc unwind label %.loopexit.split-lp
+
+.noexc:                                           ; preds = %27
+  %28 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 2
+  %29 = load i8, i8* %28, align 2, !tbaa !20301, !range !20292
+  %30 = icmp eq i8 %29, 0
+  br i1 %30, label %_ZN4Args8completeEv.exit, label %31
+
+31:                                               ; preds = %.noexc
+  %32 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 6
+  %33 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %32, align 8, !tbaa !20304
+  %34 = icmp eq %"struct.Args::Slot"* %33, null
+  br i1 %34, label %.loopexit3, label %35
+
+35:                                               ; preds = %31
+  %36 = bitcast %"struct.Args::Slot"** %32 to i64*
+  br label %40
+
+.loopexit3:                                       ; preds = %.noexc1, %31
+  %37 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 3
+  %38 = load i8, i8* %37, align 1, !tbaa !20305
+  %39 = icmp eq i8 %38, 0
+  br i1 %39, label %.loopexit, label %.preheader
+
+40:                                               ; preds = %.noexc1, %35
+  %41 = phi %"struct.Args::Slot"* [ %33, %35 ], [ %52, %.noexc1 ]
+  %42 = getelementptr inbounds %"struct.Args::Slot", %"struct.Args::Slot"* %41, i64 0, i32 1
+  %43 = bitcast %"struct.Args::Slot"** %42 to i64*
+  %44 = load i64, i64* %43, align 8, !tbaa !20306
+  store i64 %44, i64* %36, align 8, !tbaa !20304
+  %45 = bitcast %"struct.Args::Slot"* %41 to void (%"struct.Args::Slot"*)***
+  %46 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %45, align 8, !tbaa !20285
+  %47 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %46, i64 2
+  %48 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %47, align 8
+  invoke void %48(%"struct.Args::Slot"* nonnull %41)
+          to label %.noexc1 unwind label %.loopexit2
+
+.noexc1:                                          ; preds = %40
+  %49 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %45, align 8, !tbaa !20285
+  %50 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %49, i64 1
+  %51 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %50, align 8
+  call void %51(%"struct.Args::Slot"* nonnull %41) #34
+  %52 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %32, align 8, !tbaa !20304
+  %53 = icmp eq %"struct.Args::Slot"* %52, null
+  br i1 %53, label %.loopexit3, label %40
+
+.loopexit:                                        ; preds = %.preheader, %.loopexit3
+  %54 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 0
+  store i8 0, i8* %54, align 8, !tbaa !20287
+  store i8 0, i8* %37, align 1, !tbaa !20305
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %9) #34
+  %55 = load i16, i16* %4, align 2, !tbaa !21047
+  %56 = call i16 @llvm.bswap.i16(i16 %55) #34
+  %57 = getelementptr inbounds %struct.click_ether, %struct.click_ether* %5, i64 0, i32 2
+  store i16 %56, i16* %57, align 1, !tbaa !21414
+  %58 = getelementptr inbounds %class.EnsureEther, %class.EnsureEther* %0, i64 0, i32 1, i32 0, i64 0
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(14) %58, i8* nonnull align 1 dereferenceable(14) %8, i64 14, i1 false), !tbaa.struct !22191
+  br label %81
+
+.preheader:                                       ; preds = %.preheader, %.loopexit3
+  %59 = phi i32 [ %76, %.preheader ], [ 0, %.loopexit3 ]
+  %60 = zext i32 %59 to i64
+  %61 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %60
+  %62 = load i8, i8* %61, align 1, !tbaa !20287
+  %63 = zext i8 %62 to i32
+  %64 = add nuw nsw i32 %59, 1
+  %65 = zext i32 %64 to i64
+  %66 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %65
+  %67 = add nuw nsw i32 %64, %63
+  %68 = zext i32 %67 to i64
+  %69 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %68
+  %70 = bitcast i8* %69 to i8**
+  %71 = load i8*, i8** %70, align 8, !tbaa !20284
+  %72 = zext i8 %62 to i64
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %71, i8* nonnull align 1 %66, i64 %72, i1 false)
+  %73 = load i8, i8* %61, align 1, !tbaa !20287
+  %74 = zext i8 %73 to i32
+  %75 = add i32 %59, 9
+  %76 = add i32 %75, %74
+  %77 = load i8, i8* %37, align 1, !tbaa !20305
+  %78 = zext i8 %77 to i32
+  %79 = icmp ult i32 %76, %78
+  br i1 %79, label %.preheader, label %.loopexit
+
+_ZN4Args8completeEv.exit:                         ; preds = %.noexc
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %9) #34
+  br label %81
+
+.loopexit2:                                       ; preds = %40
+  %lpad.loopexit = landingpad { i8*, i32 }
+          cleanup
+  br label %80
+
+.loopexit.split-lp:                               ; preds = %27, %25, %23, %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  %lpad.loopexit.split-lp = landingpad { i8*, i32 }
+          cleanup
+  br label %80
+
+80:                                               ; preds = %.loopexit.split-lp, %.loopexit2
+  %lpad.phi = phi { i8*, i32 } [ %lpad.loopexit, %.loopexit2 ], [ %lpad.loopexit.split-lp, %.loopexit.split-lp ]
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %9) #34
+  call void @llvm.lifetime.end.p0i8(i64 14, i8* nonnull %8) #34
+  call void @llvm.lifetime.end.p0i8(i64 2, i8* nonnull %7) #34
+  resume { i8*, i32 } %lpad.phi
+
+81:                                               ; preds = %_ZN4Args8completeEv.exit, %.loopexit
+  %82 = phi i32 [ 0, %.loopexit ], [ -1, %_ZN4Args8completeEv.exit ]
+  call void @llvm.lifetime.end.p0i8(i64 14, i8* nonnull %8) #34
+  call void @llvm.lifetime.end.p0i8(i64 2, i8* nonnull %7) #34
+  ret i32 %82
+}
+
+define dso_local void @_ZN10EtherEncap12add_handlersEv(%class.EnsureEther* readonly %0) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %2 = alloca %class.String, align 8
+  %3 = alloca %class.String, align 8
+  %4 = alloca %class.String, align 8
+  %5 = alloca %class.String, align 8
+  %6 = bitcast %class.EnsureEther* %0 to %class.Element*
+  tail call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.33.16226, i64 0, i64 0), i32 1, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZL26ether_address_data_handleriR6StringP7ElementPK7HandlerP12ErrorHandler, i32 143, i32 143)
+  %7 = bitcast %class.String* %2 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 24, i8* nonnull %7) #34
+  %8 = getelementptr inbounds %class.String, %class.String* %2, i64 0, i32 0, i32 0
+  store i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.33.16226, i64 0, i64 0), i8** %8, align 8, !tbaa !20330
+  %9 = getelementptr inbounds %class.String, %class.String* %2, i64 0, i32 0, i32 1
+  store i32 3, i32* %9, align 8, !tbaa !20308
+  %10 = getelementptr inbounds %class.String, %class.String* %2, i64 0, i32 0, i32 2
+  store %"struct.String::memo_t"* null, %"struct.String::memo_t"** %10, align 8, !tbaa !20316
+  invoke void @_ZN6Router17add_write_handlerEPK7ElementRK6StringPFiS5_PS0_PvP12ErrorHandlerES7_j(%class.Element* %6, %class.String* nonnull dereferenceable(24) %2, i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN7Element27reconfigure_keyword_handlerERK6StringPS_PvP12ErrorHandler, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.str.21.3957, i64 0, i64 0), i32 0)
+          to label %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit unwind label %23
+
+_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit: ; preds = %1
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %7) #34
+  call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.11.8710, i64 0, i64 0), i32 1, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZL26ether_address_data_handleriR6StringP7ElementPK7HandlerP12ErrorHandler, i32 137, i32 137)
+  %11 = bitcast %class.String* %3 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 24, i8* nonnull %11) #34
+  %12 = getelementptr inbounds %class.String, %class.String* %3, i64 0, i32 0, i32 0
+  store i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.11.8710, i64 0, i64 0), i8** %12, align 8, !tbaa !20330
+  %13 = getelementptr inbounds %class.String, %class.String* %3, i64 0, i32 0, i32 1
+  store i32 3, i32* %13, align 8, !tbaa !20308
+  %14 = getelementptr inbounds %class.String, %class.String* %3, i64 0, i32 0, i32 2
+  store %"struct.String::memo_t"* null, %"struct.String::memo_t"** %14, align 8, !tbaa !20316
+  invoke void @_ZN6Router17add_write_handlerEPK7ElementRK6StringPFiS5_PS0_PvP12ErrorHandlerES7_j(%class.Element* %6, %class.String* nonnull dereferenceable(24) %3, i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN7Element27reconfigure_keyword_handlerERK6StringPS_PvP12ErrorHandler, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.str.12.8711, i64 0, i64 0), i32 0)
+          to label %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit8 unwind label %27
+
+_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit8: ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %11) #34
+  call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %6, i8* getelementptr inbounds ([10 x i8], [10 x i8]* @.str.17.2575, i64 0, i64 0), i32 1, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZL25uint16_t_net_data_handleriR6StringP7ElementPK7HandlerP12ErrorHandler, i32 149, i32 149)
+  %15 = bitcast %class.String* %4 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 24, i8* nonnull %15) #34
+  %16 = getelementptr inbounds %class.String, %class.String* %4, i64 0, i32 0, i32 0
+  store i8* getelementptr inbounds ([10 x i8], [10 x i8]* @.str.17.2575, i64 0, i64 0), i8** %16, align 8, !tbaa !20330
+  %17 = getelementptr inbounds %class.String, %class.String* %4, i64 0, i32 0, i32 1
+  store i32 9, i32* %17, align 8, !tbaa !20308
+  %18 = getelementptr inbounds %class.String, %class.String* %4, i64 0, i32 0, i32 2
+  store %"struct.String::memo_t"* null, %"struct.String::memo_t"** %18, align 8, !tbaa !20316
+  invoke void @_ZN6Router17add_write_handlerEPK7ElementRK6StringPFiS5_PS0_PvP12ErrorHandlerES7_j(%class.Element* %6, %class.String* nonnull dereferenceable(24) %4, i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN7Element27reconfigure_keyword_handlerERK6StringPS_PvP12ErrorHandler, i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.8.2250, i64 0, i64 0), i32 0)
+          to label %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit10 unwind label %31
+
+_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit10: ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit8
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %15) #34
+  call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %6, i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str.9.2251, i64 0, i64 0), i32 513, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZL25uint16_t_net_data_handleriR6StringP7ElementPK7HandlerP12ErrorHandler, i32 149, i32 149)
+  %19 = bitcast %class.String* %5 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 24, i8* nonnull %19) #34
+  %20 = getelementptr inbounds %class.String, %class.String* %5, i64 0, i32 0, i32 0
+  store i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str.9.2251, i64 0, i64 0), i8** %20, align 8, !tbaa !20330
+  %21 = getelementptr inbounds %class.String, %class.String* %5, i64 0, i32 0, i32 1
+  store i32 4, i32* %21, align 8, !tbaa !20308
+  %22 = getelementptr inbounds %class.String, %class.String* %5, i64 0, i32 0, i32 2
+  store %"struct.String::memo_t"* null, %"struct.String::memo_t"** %22, align 8, !tbaa !20316
+  invoke void @_ZN6Router17add_write_handlerEPK7ElementRK6StringPFiS5_PS0_PvP12ErrorHandlerES7_j(%class.Element* %6, %class.String* nonnull dereferenceable(24) %5, i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN7Element27reconfigure_keyword_handlerERK6StringPS_PvP12ErrorHandler, i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.8.2250, i64 0, i64 0), i32 0)
+          to label %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit12 unwind label %35
+
+_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit12: ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit10
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %19) #34
+  ret void
+
+23:                                               ; preds = %1
+  %24 = landingpad { i8*, i32 }
+          cleanup
+  %25 = extractvalue { i8*, i32 } %24, 0
+  %26 = extractvalue { i8*, i32 } %24, 1
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %7) #34
+  br label %39
+
+27:                                               ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit
+  %28 = landingpad { i8*, i32 }
+          cleanup
+  %29 = extractvalue { i8*, i32 } %28, 0
+  %30 = extractvalue { i8*, i32 } %28, 1
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %11) #34
+  br label %39
+
+31:                                               ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit8
+  %32 = landingpad { i8*, i32 }
+          cleanup
+  %33 = extractvalue { i8*, i32 } %32, 0
+  %34 = extractvalue { i8*, i32 } %32, 1
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %15) #34
+  br label %39
+
+35:                                               ; preds = %_ZN7Element17add_write_handlerERK6StringPFiS2_PS_PvP12ErrorHandlerEPKvj.exit10
+  %36 = landingpad { i8*, i32 }
+          cleanup
+  %37 = extractvalue { i8*, i32 } %36, 0
+  %38 = extractvalue { i8*, i32 } %36, 1
+  call void @llvm.lifetime.end.p0i8(i64 24, i8* nonnull %19) #34
+  br label %39
+
+39:                                               ; preds = %35, %31, %27, %23
+  %40 = phi i8* [ %37, %35 ], [ %33, %31 ], [ %29, %27 ], [ %25, %23 ]
+  %41 = phi i32 [ %38, %35 ], [ %34, %31 ], [ %30, %27 ], [ %26, %23 ]
+  %42 = insertvalue { i8*, i32 } undef, i8* %40, 0
+  %43 = insertvalue { i8*, i32 } %42, i32 %41, 1
+  resume { i8*, i32 } %43
+}
+
+define internal zeroext i1 @_ZNK10EtherEncap20can_live_reconfigureEv(%class.EnsureEther* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i1 true
+}
+
+
+

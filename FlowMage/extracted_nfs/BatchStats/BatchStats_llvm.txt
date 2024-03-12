@@ -1,0 +1,515 @@
+define dso_local void @_ZN10BatchStatsC2Ev(%class.BatchStats* %0) unnamed_addr #2 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %2 = alloca %class.Vector.2, align 8
+  %3 = getelementptr %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 0
+  %4 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 1
+  %5 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 2
+  store i8 0, i8* %5, align 4, !tbaa !20277
+  %6 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %7 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %6, i64 0, i32 0
+  store %class.Element* null, %class.Element** %7, align 8, !tbaa !20278
+  %8 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 0, i32 1
+  store i32 -2, i32* %8, align 8, !tbaa !20280
+  %9 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 0
+  store %class.Element* null, %class.Element** %9, align 8, !tbaa !20278
+  %10 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 1
+  store i32 -2, i32* %10, align 8, !tbaa !20280
+  %11 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 0
+  store %class.Element* null, %class.Element** %11, align 8, !tbaa !20278
+  %12 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 1
+  store i32 -2, i32* %12, align 8, !tbaa !20280
+  %13 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 0
+  store %class.Element* null, %class.Element** %13, align 8, !tbaa !20278
+  %14 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 1
+  store i32 -2, i32* %14, align 8, !tbaa !20280
+  %15 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 7
+  store %class.Router* null, %class.Router** %15, align 8, !tbaa !20281
+  %16 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 8
+  store i32 -1, i32* %16, align 8, !tbaa !20282
+  %17 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 10
+  %18 = bitcast %class.Vector* %17 to i8*
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(17) %18, i8 0, i64 17, i1 false) #34
+  %19 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %20 = add nsw i32 %19, 1
+  store i32 %20, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %21 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  store %"class.Element::Port"* %6, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %22 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  store %"class.Element::Port"* %6, %"class.Element::Port"** %22, align 8, !tbaa !20284
+  %23 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  store i32 0, i32* %23, align 4, !tbaa !20283
+  %24 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 6, i64 0
+  store i32 0, i32* %24, align 8, !tbaa !20283
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [39 x i8*] }, { [39 x i8*] }* @_ZTV12BatchElement, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %3, align 8, !tbaa !20285
+  store i32 1, i32* %4, align 8, !tbaa !20267
+  %25 = bitcast %class.Vector.2* %2 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(16) %25, i8 0, i64 16, i1 false) #34
+  %26 = tail call noalias i8* @aligned_alloc(i64 16, i64 32768) #34
+  %27 = icmp eq i8* %26, null
+  br i1 %27, label %._crit_edge.thread, label %29
+
+._crit_edge.thread:                               ; preds = %1
+  %28 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2
+  call fastcc void @_ZN10StatVectorIiEC2E6VectorIiLm16EE(%class.StatVector* nonnull %28, %class.Vector.2* nonnull %2)
+  br label %34
+
+29:                                               ; preds = %1
+  %30 = getelementptr inbounds %class.Vector.2, %class.Vector.2* %2, i64 0, i32 0, i32 2
+  %31 = bitcast %class.Vector.2* %2 to i8**
+  store i8* %26, i8** %31, align 8, !tbaa !20299
+  store i32 8192, i32* %30, align 4, !tbaa !20474
+  %32 = getelementptr inbounds %class.Vector.2, %class.Vector.2* %2, i64 0, i32 0, i32 1
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 1 dereferenceable(32768) %26, i8 0, i64 32768, i1 false)
+  store i32 8192, i32* %32, align 8, !tbaa !20475
+  %33 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2
+  call fastcc void @_ZN10StatVectorIiEC2E6VectorIiLm16EE(%class.StatVector* nonnull %33, %class.Vector.2* nonnull %2)
+  call void @_ZdaPv(i8* nonnull %26) #55
+  br label %34
+
+34:                                               ; preds = %29, %._crit_edge.thread
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [39 x i8*] }, { [39 x i8*] }* @_ZTV10BatchStats, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %3, align 8, !tbaa !20285
+  ret void
+}
+
+define dso_local void @_ZN10BatchStatsD2Ev(%class.BatchStats* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2
+  %3 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2, i32 0, i32 1
+  %4 = load i32, i32* %3, align 8, !tbaa !20852
+  %5 = icmp eq i32 %4, 0
+  br i1 %5, label %26, label %6
+
+6:                                                ; preds = %1
+  %7 = getelementptr inbounds %class.StatVector, %class.StatVector* %2, i64 0, i32 0, i32 0
+  br label %11
+
+8:                                                ; preds = %21
+  %9 = bitcast %class.StatVector* %2 to i8**
+  %10 = load i8*, i8** %9, align 8, !tbaa !20854
+  tail call void @free(i8* %10) #34
+  store i32 0, i32* %3, align 8, !tbaa !20852
+  br label %26
+
+11:                                               ; preds = %21, %6
+  %12 = phi i32 [ %4, %6 ], [ %22, %21 ]
+  %13 = phi i64 [ 0, %6 ], [ %23, %21 ]
+  %14 = load %"struct.per_thread<Vector<int, 16> >::A_t"*, %"struct.per_thread<Vector<int, 16> >::A_t"** %7, align 8, !tbaa !20854
+  %15 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %14, i64 %13
+  %16 = bitcast %"struct.per_thread<Vector<int, 16> >::A_t"* %15 to i8**
+  %17 = load i8*, i8** %16, align 8, !tbaa !20299
+  %18 = icmp eq i8* %17, null
+  br i1 %18, label %21, label %19
+
+19:                                               ; preds = %11
+  tail call void @_ZdaPv(i8* nonnull %17) #55
+  %20 = load i32, i32* %3, align 8, !tbaa !20852
+  br label %21
+
+21:                                               ; preds = %19, %11
+  %22 = phi i32 [ %12, %11 ], [ %20, %19 ]
+  %23 = add nuw nsw i64 %13, 1
+  %24 = zext i32 %22 to i64
+  %25 = icmp ult i64 %23, %24
+  br i1 %25, label %11, label %8
+
+26:                                               ; preds = %8, %1
+  %27 = getelementptr %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %27, align 8, !tbaa !20285
+  %28 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %29 = add nsw i32 %28, -1
+  store i32 %29, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %30 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %31 = load %"class.Element::Port"*, %"class.Element::Port"** %30, align 8, !tbaa !20284
+  %32 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %33 = icmp uge %"class.Element::Port"* %31, %32
+  %34 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 6
+  %35 = bitcast [2 x i32]* %34 to %"class.Element::Port"*
+  %36 = icmp ule %"class.Element::Port"* %31, %35
+  %37 = and i1 %36, %33
+  %38 = icmp eq %"class.Element::Port"* %31, null
+  %39 = or i1 %38, %37
+  br i1 %39, label %42, label %40
+
+40:                                               ; preds = %26
+  %41 = bitcast %"class.Element::Port"* %31 to i8*
+  tail call void @_ZdaPv(i8* %41) #55
+  br label %42
+
+42:                                               ; preds = %40, %26
+  %43 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %44 = load %"class.Element::Port"*, %"class.Element::Port"** %43, align 8, !tbaa !20284
+  %45 = icmp uge %"class.Element::Port"* %44, %32
+  %46 = icmp ule %"class.Element::Port"* %44, %35
+  %47 = and i1 %46, %45
+  %48 = icmp eq %"class.Element::Port"* %44, null
+  %49 = or i1 %48, %47
+  br i1 %49, label %52, label %50
+
+50:                                               ; preds = %42
+  %51 = bitcast %"class.Element::Port"* %44 to i8*
+  tail call void @_ZdaPv(i8* %51) #55
+  br label %52
+
+52:                                               ; preds = %50, %42
+  %53 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 10
+  %54 = bitcast %class.Vector* %53 to i8**
+  %55 = load i8*, i8** %54, align 8, !tbaa !20288
+  %56 = icmp eq i8* %55, null
+  br i1 %56, label %_ZN12BatchElementD2Ev.exit, label %57
+
+57:                                               ; preds = %52
+  tail call void @_ZdaPv(i8* nonnull %55) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %57, %52
+  ret void
+}
+
+define dso_local void @_ZN10BatchStatsD0Ev(%class.BatchStats* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2
+  %3 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2, i32 0, i32 1
+  %4 = load i32, i32* %3, align 8, !tbaa !20852
+  %5 = icmp eq i32 %4, 0
+  br i1 %5, label %26, label %6
+
+6:                                                ; preds = %1
+  %7 = getelementptr inbounds %class.StatVector, %class.StatVector* %2, i64 0, i32 0, i32 0
+  br label %11
+
+8:                                                ; preds = %21
+  %9 = bitcast %class.StatVector* %2 to i8**
+  %10 = load i8*, i8** %9, align 8, !tbaa !20854
+  tail call void @free(i8* %10) #34
+  store i32 0, i32* %3, align 8, !tbaa !20852
+  br label %26
+
+11:                                               ; preds = %21, %6
+  %12 = phi i32 [ %4, %6 ], [ %22, %21 ]
+  %13 = phi i64 [ 0, %6 ], [ %23, %21 ]
+  %14 = load %"struct.per_thread<Vector<int, 16> >::A_t"*, %"struct.per_thread<Vector<int, 16> >::A_t"** %7, align 8, !tbaa !20854
+  %15 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %14, i64 %13
+  %16 = bitcast %"struct.per_thread<Vector<int, 16> >::A_t"* %15 to i8**
+  %17 = load i8*, i8** %16, align 8, !tbaa !20299
+  %18 = icmp eq i8* %17, null
+  br i1 %18, label %21, label %19
+
+19:                                               ; preds = %11
+  tail call void @_ZdaPv(i8* nonnull %17) #55
+  %20 = load i32, i32* %3, align 8, !tbaa !20852
+  br label %21
+
+21:                                               ; preds = %19, %11
+  %22 = phi i32 [ %12, %11 ], [ %20, %19 ]
+  %23 = add nuw nsw i64 %13, 1
+  %24 = zext i32 %22 to i64
+  %25 = icmp ult i64 %23, %24
+  br i1 %25, label %11, label %8
+
+26:                                               ; preds = %8, %1
+  %27 = getelementptr %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %27, align 8, !tbaa !20285
+  %28 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %29 = add nsw i32 %28, -1
+  store i32 %29, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %30 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %31 = load %"class.Element::Port"*, %"class.Element::Port"** %30, align 8, !tbaa !20284
+  %32 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %33 = icmp uge %"class.Element::Port"* %31, %32
+  %34 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 6
+  %35 = bitcast [2 x i32]* %34 to %"class.Element::Port"*
+  %36 = icmp ule %"class.Element::Port"* %31, %35
+  %37 = and i1 %36, %33
+  %38 = icmp eq %"class.Element::Port"* %31, null
+  %39 = or i1 %38, %37
+  br i1 %39, label %42, label %40
+
+40:                                               ; preds = %26
+  %41 = bitcast %"class.Element::Port"* %31 to i8*
+  tail call void @_ZdaPv(i8* %41) #55
+  br label %42
+
+42:                                               ; preds = %40, %26
+  %43 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %44 = load %"class.Element::Port"*, %"class.Element::Port"** %43, align 8, !tbaa !20284
+  %45 = icmp uge %"class.Element::Port"* %44, %32
+  %46 = icmp ule %"class.Element::Port"* %44, %35
+  %47 = and i1 %46, %45
+  %48 = icmp eq %"class.Element::Port"* %44, null
+  %49 = or i1 %48, %47
+  br i1 %49, label %52, label %50
+
+50:                                               ; preds = %42
+  %51 = bitcast %"class.Element::Port"* %44 to i8*
+  tail call void @_ZdaPv(i8* %51) #55
+  br label %52
+
+52:                                               ; preds = %50, %42
+  %53 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 0, i32 0, i32 10
+  %54 = bitcast %class.Vector* %53 to i8**
+  %55 = load i8*, i8** %54, align 8, !tbaa !20288
+  %56 = icmp eq i8* %55, null
+  br i1 %56, label %_ZN12BatchElementD2Ev.exit, label %57
+
+57:                                               ; preds = %52
+  tail call void @_ZdaPv(i8* nonnull %55) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %57, %52
+  ret void
+}
+
+define dso_local %class.Packet* @_ZN10BatchStats13simple_actionEP6Packet(%class.BatchStats* nocapture readonly %0, %class.Packet* readnone returned %1) unnamed_addr #2 align 2 {
+  %3 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2, i32 0, i32 0
+  %4 = load %"struct.per_thread<Vector<int, 16> >::A_t"*, %"struct.per_thread<Vector<int, 16> >::A_t"** %3, align 8, !tbaa !20854
+  %5 = load i32, i32* @click_current_thread_id, align 4, !tbaa !20283
+  %6 = and i32 %5, 65535
+  %7 = zext i32 %6 to i64
+  %8 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %4, i64 %7, i32 0, i32 0, i32 1
+  %9 = load i32, i32* %8, align 8, !tbaa !20855
+  %10 = icmp ugt i32 %9, 1
+  br i1 %10, label %12, label %11
+
+11:                                               ; preds = %2
+  tail call void @__assert_fail(i8* getelementptr inbounds ([33 x i8], [33 x i8]* @.str.9.16717, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.10.16718, i64 0, i64 0), i32 293, i8* getelementptr inbounds ([76 x i8], [76 x i8]* @__PRETTY_FUNCTION__._ZN6VectorIiLm16EEixEi.16677, i64 0, i64 0)) #57
+  unreachable
+
+12:                                               ; preds = %2
+  %13 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %4, i64 %7, i32 0, i32 0, i32 0
+  %14 = load %struct.char_array.4*, %struct.char_array.4** %13, align 8, !tbaa !20856
+  %15 = getelementptr inbounds %struct.char_array.4, %struct.char_array.4* %14, i64 1
+  %16 = bitcast %struct.char_array.4* %15 to i32*
+  %17 = load i32, i32* %16, align 4, !tbaa !20283
+  %18 = add nsw i32 %17, 1
+  store i32 %18, i32* %16, align 4, !tbaa !20283
+  ret %class.Packet* %1
+}
+
+define internal i8* @_ZNK10BatchStats10class_nameEv(%class.BatchStats* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str.17.13021, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK10BatchStats10port_countEv(%class.BatchStats* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([2 x i8], [2 x i8]* @_ZN7Element9PORTS_1_1E, i64 0, i64 0)
+}
+
+define dso_local i8* @_ZN10BatchStats4castEPKc(%class.BatchStats* %0, i8* readonly %1) unnamed_addr #0 align 2 {
+  %3 = tail call i32 @strcmp(i8* nonnull dereferenceable(1) %1, i8* nonnull dereferenceable(11) getelementptr inbounds ([11 x i8], [11 x i8]* @.str.436, i64 0, i64 0)) #41
+  %4 = icmp eq i32 %3, 0
+  br i1 %4, label %5, label %8
+
+5:                                                ; preds = %2
+  %6 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2
+  %7 = bitcast %class.StatVector* %6 to i8*
+  br label %_ZN7Element4castEPKc.exit
+
+8:                                                ; preds = %2
+  %9 = bitcast %class.BatchStats* %0 to %class.Element*
+  %10 = bitcast %class.BatchStats* %0 to i8* (%class.Element*)***
+  %11 = load i8* (%class.Element*)**, i8* (%class.Element*)*** %10, align 8, !tbaa !20285
+  %12 = getelementptr inbounds i8* (%class.Element*)*, i8* (%class.Element*)** %11, i64 12
+  %13 = load i8* (%class.Element*)*, i8* (%class.Element*)** %12, align 8
+  %14 = tail call i8* %13(%class.Element* %9)
+  %15 = icmp ne i8* %14, null
+  %16 = icmp ne i8* %1, null
+  %17 = and i1 %16, %15
+  br i1 %17, label %18, label %_ZN7Element4castEPKc.exit
+
+18:                                               ; preds = %8
+  %19 = tail call i32 @strcmp(i8* nonnull %14, i8* nonnull %1) #41
+  %20 = icmp eq i32 %19, 0
+  %21 = bitcast %class.BatchStats* %0 to i8*
+  %22 = select i1 %20, i8* %21, i8* null
+  br label %_ZN7Element4castEPKc.exit
+
+_ZN7Element4castEPKc.exit:                        ; preds = %18, %8, %5
+  %23 = phi i8* [ %7, %5 ], [ %22, %18 ], [ null, %8 ]
+  ret i8* %23
+}
+
+define dso_local i32 @_ZN10BatchStats9configureER6VectorI6StringLm16EEP12ErrorHandler(%class.BatchStats* %0, %class.Vector.0* dereferenceable(16) %1, %class.ErrorHandler* %2) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %4 = alloca %class.Args, align 8
+  %5 = bitcast %class.Args* %4 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 112, i8* nonnull %5) #34
+  %6 = bitcast %class.Args* %4 to %class.BatchStats**
+  store %class.BatchStats* %0, %class.BatchStats** %6, align 8, !tbaa !20294
+  %7 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 1
+  store %class.ErrorHandler* %2, %class.ErrorHandler** %7, align 8, !tbaa !20296
+  %8 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 2
+  store i8* null, i8** %8, align 8, !tbaa !20297
+  %9 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 3
+  store i8 0, i8* %9, align 8, !tbaa !20298
+  %10 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 5
+  %11 = bitcast %class.Vector.2* %10 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(16) %11, i8 0, i64 16, i1 false) #34
+  invoke void @_ZN4Args10initializeEPK6VectorI6StringLm16EE(%class.Args* nonnull %4, %class.Vector.0* nonnull %1)
+          to label %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit unwind label %12
+
+12:                                               ; preds = %3
+  %13 = landingpad { i8*, i32 }
+          cleanup
+  %14 = bitcast %class.Vector.2* %10 to i8**
+  %15 = load i8*, i8** %14, align 8, !tbaa !20299
+  %16 = icmp eq i8* %15, null
+  br i1 %16, label %18, label %17
+
+17:                                               ; preds = %12
+  call void @_ZdaPv(i8* nonnull %15) #55
+  br label %18
+
+18:                                               ; preds = %17, %12
+  resume { i8*, i32 } %13
+
+_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit: ; preds = %3
+  invoke void @_ZN4Args14check_completeEv(%class.Args* nonnull %4)
+          to label %.noexc unwind label %.loopexit.split-lp
+
+.noexc:                                           ; preds = %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  %19 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 2
+  %20 = load i8, i8* %19, align 2, !tbaa !20301, !range !20292
+  %21 = icmp eq i8 %20, 0
+  br i1 %21, label %_ZN4Args8completeEv.exit, label %22
+
+22:                                               ; preds = %.noexc
+  %23 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 6
+  %24 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %23, align 8, !tbaa !20304
+  %25 = icmp eq %"struct.Args::Slot"* %24, null
+  br i1 %25, label %.loopexit3, label %26
+
+26:                                               ; preds = %22
+  %27 = bitcast %"struct.Args::Slot"** %23 to i64*
+  br label %31
+
+.loopexit3:                                       ; preds = %.noexc1, %22
+  %28 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 3
+  %29 = load i8, i8* %28, align 1, !tbaa !20305
+  %30 = icmp eq i8 %29, 0
+  br i1 %30, label %.loopexit, label %.preheader
+
+31:                                               ; preds = %.noexc1, %26
+  %32 = phi %"struct.Args::Slot"* [ %24, %26 ], [ %43, %.noexc1 ]
+  %33 = getelementptr inbounds %"struct.Args::Slot", %"struct.Args::Slot"* %32, i64 0, i32 1
+  %34 = bitcast %"struct.Args::Slot"** %33 to i64*
+  %35 = load i64, i64* %34, align 8, !tbaa !20306
+  store i64 %35, i64* %27, align 8, !tbaa !20304
+  %36 = bitcast %"struct.Args::Slot"* %32 to void (%"struct.Args::Slot"*)***
+  %37 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %36, align 8, !tbaa !20285
+  %38 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %37, i64 2
+  %39 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %38, align 8
+  invoke void %39(%"struct.Args::Slot"* nonnull %32)
+          to label %.noexc1 unwind label %.loopexit2
+
+.noexc1:                                          ; preds = %31
+  %40 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %36, align 8, !tbaa !20285
+  %41 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %40, i64 1
+  %42 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %41, align 8
+  call void %42(%"struct.Args::Slot"* nonnull %32) #34
+  %43 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %23, align 8, !tbaa !20304
+  %44 = icmp eq %"struct.Args::Slot"* %43, null
+  br i1 %44, label %.loopexit3, label %31
+
+.loopexit:                                        ; preds = %.preheader, %.loopexit3
+  %45 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 7, i64 0
+  store i8 0, i8* %45, align 8, !tbaa !20287
+  store i8 0, i8* %28, align 1, !tbaa !20305
+  br label %_ZN4Args8completeEv.exit
+
+.preheader:                                       ; preds = %.preheader, %.loopexit3
+  %46 = phi i32 [ %63, %.preheader ], [ 0, %.loopexit3 ]
+  %47 = zext i32 %46 to i64
+  %48 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 7, i64 %47
+  %49 = load i8, i8* %48, align 1, !tbaa !20287
+  %50 = zext i8 %49 to i32
+  %51 = add nuw nsw i32 %46, 1
+  %52 = zext i32 %51 to i64
+  %53 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 7, i64 %52
+  %54 = add nuw nsw i32 %51, %50
+  %55 = zext i32 %54 to i64
+  %56 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 7, i64 %55
+  %57 = bitcast i8* %56 to i8**
+  %58 = load i8*, i8** %57, align 8, !tbaa !20284
+  %59 = zext i8 %49 to i64
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %58, i8* nonnull align 1 %53, i64 %59, i1 false)
+  %60 = load i8, i8* %48, align 1, !tbaa !20287
+  %61 = zext i8 %60 to i32
+  %62 = add i32 %46, 9
+  %63 = add i32 %62, %61
+  %64 = load i8, i8* %28, align 1, !tbaa !20305
+  %65 = zext i8 %64 to i32
+  %66 = icmp ult i32 %63, %65
+  br i1 %66, label %.preheader, label %.loopexit
+
+_ZN4Args8completeEv.exit:                         ; preds = %.loopexit, %.noexc
+  %67 = phi i32 [ 0, %.loopexit ], [ -1, %.noexc ]
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %4) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %5) #34
+  ret i32 %67
+
+.loopexit2:                                       ; preds = %31
+  %lpad.loopexit = landingpad { i8*, i32 }
+          cleanup
+  br label %68
+
+.loopexit.split-lp:                               ; preds = %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  %lpad.loopexit.split-lp = landingpad { i8*, i32 }
+          cleanup
+  br label %68
+
+68:                                               ; preds = %.loopexit.split-lp, %.loopexit2
+  %lpad.phi = phi { i8*, i32 } [ %lpad.loopexit, %.loopexit2 ], [ %lpad.loopexit.split-lp, %.loopexit.split-lp ]
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %4) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %5) #34
+  resume { i8*, i32 } %lpad.phi
+}
+
+define dso_local void @_ZN10BatchStats12add_handlersEv(%class.BatchStats* readonly %0) unnamed_addr #0 align 2 {
+  %2 = bitcast %class.BatchStats* %0 to %class.Element*
+  tail call fastcc void @_ZN10StatVectorIiE16add_stat_handlerEP7Element(%class.Element* %2)
+  ret void
+}
+
+define dso_local i32 @_ZN10BatchStats10initializeEP12ErrorHandler(%class.BatchStats* nocapture readnone %0, %class.ErrorHandler* nocapture readnone %1) unnamed_addr #4 align 2 {
+  ret i32 0
+}
+
+define dso_local void @_ZN10BatchStats7cleanupEN7Element12CleanupStageE(%class.BatchStats* nocapture %0, i32 %1) unnamed_addr #4 align 2 {
+  ret void
+}
+
+define dso_local %class.PacketBatch* @_ZN10BatchStats19simple_action_batchEP11PacketBatch(%class.BatchStats* nocapture readonly %0, %class.PacketBatch* readonly returned %1) unnamed_addr #2 align 2 {
+  %3 = getelementptr inbounds %class.BatchStats, %class.BatchStats* %0, i64 0, i32 2, i32 0, i32 0
+  %4 = load %"struct.per_thread<Vector<int, 16> >::A_t"*, %"struct.per_thread<Vector<int, 16> >::A_t"** %3, align 8, !tbaa !20854
+  %5 = load i32, i32* @click_current_thread_id, align 4, !tbaa !20283
+  %6 = and i32 %5, 65535
+  %7 = zext i32 %6 to i64
+  %8 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %1, i64 48, i32 0
+  %9 = getelementptr inbounds i8, i8* %8, i64 24
+  %10 = bitcast i8* %9 to i16*
+  %11 = load i16, i16* %10, align 2, !tbaa !20287
+  %12 = icmp eq i16 %11, 0
+  br i1 %12, label %13, label %14
+
+13:                                               ; preds = %2
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+14:                                               ; preds = %2
+  %15 = zext i16 %11 to i32
+  %16 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %4, i64 %7, i32 0, i32 0, i32 1
+  %17 = load i32, i32* %16, align 8, !tbaa !20855
+  %18 = icmp ugt i32 %17, %15
+  br i1 %18, label %20, label %19
+
+19:                                               ; preds = %14
+  tail call void @__assert_fail(i8* getelementptr inbounds ([33 x i8], [33 x i8]* @.str.9.16717, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.10.16718, i64 0, i64 0), i32 293, i8* getelementptr inbounds ([76 x i8], [76 x i8]* @__PRETTY_FUNCTION__._ZN6VectorIiLm16EEixEi.16677, i64 0, i64 0)) #57
+  unreachable
+
+20:                                               ; preds = %14
+  %21 = getelementptr inbounds %"struct.per_thread<Vector<int, 16> >::A_t", %"struct.per_thread<Vector<int, 16> >::A_t"* %4, i64 %7, i32 0, i32 0, i32 0
+  %22 = load %struct.char_array.4*, %struct.char_array.4** %21, align 8, !tbaa !20856
+  %23 = zext i16 %11 to i64
+  %24 = getelementptr inbounds %struct.char_array.4, %struct.char_array.4* %22, i64 %23
+  %25 = bitcast %struct.char_array.4* %24 to i32*
+  %26 = load i32, i32* %25, align 4, !tbaa !20283
+  %27 = add nsw i32 %26, 1
+  store i32 %27, i32* %25, align 4, !tbaa !20283
+  ret %class.PacketBatch* %1
+}
+

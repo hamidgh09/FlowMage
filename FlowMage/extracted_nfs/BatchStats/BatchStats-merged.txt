@@ -1,0 +1,158 @@
+/***  batchstats.hh ***/
+
+// -*- c-basic-offset: 4 -*-
+#ifndef CLICK_BATCHSTATS_HH
+#define CLICK_BATCHSTATS_HH
+#include <click/batchelement.hh>
+#include <click/multithread.hh>
+#include <click/vector.hh>
+#include <click/statvector.hh>
+CLICK_DECLS
+
+/*
+=c
+
+BatchStats
+
+=s counters
+
+keep statistics about batching
+
+=d
+
+Remembers the size of every batch passing by, and displays various statistics about the batch sizes
+
+handlers
+
+* average : Average batch size
+* median : Median batch size
+* dump : Print the number of batches for each size seen
+
+ */
+
+class BatchStats : public BatchElement, StatVector<int> { public:
+
+    BatchStats() CLICK_COLD;
+    ~BatchStats() CLICK_COLD;
+
+    const char *class_name() const override	{ return "BatchStats"; }
+    const char *port_count() const override	{ return PORTS_1_1; }
+    void * cast(const char *name);
+
+    int configure(Vector<String> &, ErrorHandler *) CLICK_COLD;
+    int initialize(ErrorHandler *) CLICK_COLD;
+    void cleanup(CleanupStage) CLICK_COLD;
+
+    Packet *simple_action(Packet *) override;
+#if HAVE_BATCH
+    PacketBatch *simple_action_batch(PacketBatch *) override;
+#endif
+
+    void add_handlers();
+
+};
+
+CLICK_ENDDECLS
+#endif
+
+
+/***  batchstats.cc ***/
+
+// -*- c-basic-offset: 4 -*-
+/*
+ * batchstats.{cc,hh} -- batch statistics counter
+ * Tom Barbette
+ *
+ * Copyright (c) 2016 University of Liege
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, subject to the conditions
+ * listed in the Click LICENSE file. These conditions include: you must
+ * preserve this copyright notice, and you cannot mention the copyright
+ * holders in advertising related to the Software without their permission.
+ * The Software is provided WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED. This
+ * notice is a summary of the Click LICENSE file; the license in that file is
+ * legally binding.
+ */
+
+#include <click/config.h>
+#include "batchstats.hh"
+#include <click/string.hh>
+#include <click/straccum.hh>
+#include <click/args.hh>
+
+CLICK_DECLS
+
+BatchStats::BatchStats() : StatVector(Vector<int>(MAX_BATCH_SIZE,0))
+{
+}
+
+BatchStats::~BatchStats()
+{
+}
+int
+BatchStats::configure(Vector<String> &conf, ErrorHandler *errh)
+{
+
+    if (Args(conf, this, errh)
+	.complete() < 0)
+	return -1;
+
+    return 0;
+}
+
+void *
+BatchStats::cast(const char *name)
+{
+    if (strcmp(name, "StatVector") == 0)
+	return (StatVector*)this;
+    else
+	return Element::cast(name);
+}
+
+
+int
+BatchStats::initialize(ErrorHandler *)
+{
+    return 0;
+}
+
+void
+BatchStats::cleanup(CleanupStage)
+{
+
+}
+
+Packet*
+BatchStats::simple_action(Packet* p)
+{
+    (*stats)[1]++;
+    return p;
+}
+
+#if HAVE_BATCH
+PacketBatch*
+BatchStats::simple_action_batch(PacketBatch* b)
+{
+    (*stats)[b->count()]++;
+    return b;
+}
+#endif
+
+
+
+void
+BatchStats::add_handlers()
+{
+    add_stat_handler(this);
+}
+
+
+CLICK_ENDDECLS
+
+ELEMENT_REQUIRES(batch)
+EXPORT_ELEMENT(BatchStats)
+ELEMENT_MT_SAFE(BatchStats)
+
+

@@ -1,0 +1,460 @@
+/***  ethermirror.cc ***/
+
+/*
+ * ethermirror.{cc,hh} -- rewrites Ethernet packet a->b to b->a
+ * Eddie Kohler
+ *
+ * Computational batching support
+ * by Georgios Katsikas
+ *
+ * Copyright (c) 2000 Massachusetts Institute of Technology
+ * Copyright (c) 2017 KTH Royal Institute of Technology
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, subject to the conditions
+ * listed in the Click LICENSE file. These conditions include: you must
+ * preserve this copyright notice, and you cannot mention the copyright
+ * holders in advertising related to the Software without their permission.
+ * The Software is provided WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED. This
+ * notice is a summary of the Click LICENSE file; the license in that file is
+ * legally binding.
+ */
+
+#include <click/config.h>
+#include "ethermirror.hh"
+#include <clicknet/ether.h>
+CLICK_DECLS
+
+EtherMirror::EtherMirror()
+{
+}
+
+EtherMirror::~EtherMirror()
+{
+}
+
+Packet *
+EtherMirror::simple_action(Packet *p)
+{
+    if (WritablePacket *q = p->uniqueify()) {
+        click_ether *ethh = reinterpret_cast<click_ether *>(q->data());
+        uint8_t tmpa[6];
+        memcpy(tmpa, ethh->ether_dhost, 6);
+        memcpy(ethh->ether_dhost, ethh->ether_shost, 6);
+        memcpy(ethh->ether_shost, tmpa, 6);
+
+        return q;
+    }
+
+    return 0;
+}
+
+#if HAVE_BATCH
+PacketBatch *
+EtherMirror::simple_action_batch(PacketBatch *batch)
+{
+#ifdef CLICK_NOINDIRECT
+    FOR_EACH_PACKET(batch, p)   {
+        EtherMirror::simple_action(p);
+    }
+#else
+    EXECUTE_FOR_EACH_PACKET_DROPPABLE(EtherMirror::simple_action, batch, [](Packet*){});
+#endif
+    return batch;
+}
+#endif
+
+CLICK_ENDDECLS
+EXPORT_ELEMENT(EtherMirror)
+
+
+/***  EtherMirror_llvm.txt ***/
+
+define dso_local void @_ZN11EtherMirrorC2Ev(%class.SimpleElement* %0) unnamed_addr #2 align 2 {
+  %2 = getelementptr %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 0
+  %3 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 1
+  %4 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 2
+  store i8 0, i8* %4, align 4, !tbaa !20277
+  %5 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %6 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %5, i64 0, i32 0
+  store %class.Element* null, %class.Element** %6, align 8, !tbaa !20278
+  %7 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 0, i32 1
+  store i32 -2, i32* %7, align 8, !tbaa !20280
+  %8 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 0
+  store %class.Element* null, %class.Element** %8, align 8, !tbaa !20278
+  %9 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 1
+  store i32 -2, i32* %9, align 8, !tbaa !20280
+  %10 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 0
+  store %class.Element* null, %class.Element** %10, align 8, !tbaa !20278
+  %11 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 1
+  store i32 -2, i32* %11, align 8, !tbaa !20280
+  %12 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 0
+  store %class.Element* null, %class.Element** %12, align 8, !tbaa !20278
+  %13 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 1
+  store i32 -2, i32* %13, align 8, !tbaa !20280
+  %14 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 7
+  store %class.Router* null, %class.Router** %14, align 8, !tbaa !20281
+  %15 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 8
+  store i32 -1, i32* %15, align 8, !tbaa !20282
+  %16 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 10
+  %17 = bitcast %class.Vector* %16 to i8*
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(17) %17, i8 0, i64 17, i1 false) #34
+  %18 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %19 = add nsw i32 %18, 1
+  store i32 %19, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %20 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %21 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %22 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  store i32 0, i32* %22, align 4, !tbaa !20283
+  %23 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 6, i64 0
+  store i32 0, i32* %23, align 8, !tbaa !20283
+  store i32 1, i32* %3, align 8, !tbaa !20267
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [39 x i8*] }, { [39 x i8*] }* @_ZTV11EtherMirror, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  ret void
+}
+
+define dso_local void @_ZN11EtherMirrorD2Ev(%class.SimpleElement* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define dso_local void @_ZN11EtherMirrorD0Ev(%class.SimpleElement* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.SimpleElement, %class.SimpleElement* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define dso_local %class.Packet* @_ZN11EtherMirror13simple_actionEP6Packet(%class.SimpleElement* nocapture readnone %0, %class.Packet* %1) unnamed_addr #0 align 2 {
+  %3 = alloca [6 x i8], align 1
+  %4 = getelementptr inbounds %class.Packet, %class.Packet* %1, i64 0, i32 1
+  %5 = load %class.Packet*, %class.Packet** %4, align 8, !tbaa !20801
+  %6 = icmp eq %class.Packet* %5, null
+  br i1 %6, label %7, label %13
+
+7:                                                ; preds = %2
+  %8 = getelementptr inbounds %class.Packet, %class.Packet* %1, i64 0, i32 0, i32 0
+  %9 = load volatile i32, i32* %8, align 4, !tbaa !20799
+  %10 = icmp ugt i32 %9, 1
+  br i1 %10, label %13, label %11
+
+11:                                               ; preds = %7
+  %12 = bitcast %class.Packet* %1 to %class.WritablePacket*
+  br label %15
+
+13:                                               ; preds = %7, %2
+  %14 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %1, i32 0, i32 0, i1 zeroext true)
+  br label %15
+
+15:                                               ; preds = %13, %11
+  %16 = phi %class.WritablePacket* [ %14, %13 ], [ %12, %11 ]
+  %17 = icmp eq %class.WritablePacket* %16, null
+  br i1 %17, label %24, label %18
+
+18:                                               ; preds = %15
+  %19 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %16, i64 0, i32 0, i32 3
+  %20 = load i8*, i8** %19, align 8, !tbaa !20399
+  %21 = getelementptr inbounds [6 x i8], [6 x i8]* %3, i64 0, i64 0
+  call void @llvm.lifetime.start.p0i8(i64 6, i8* nonnull %21)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %21, i8* nonnull align 1 dereferenceable(6) %20, i64 6, i1 false)
+  %22 = getelementptr inbounds i8, i8* %20, i64 6
+  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %20, i8* nonnull align 1 dereferenceable(6) %22, i64 6, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %22, i8* nonnull align 1 dereferenceable(6) %21, i64 6, i1 false)
+  %23 = getelementptr %class.WritablePacket, %class.WritablePacket* %16, i64 0, i32 0
+  call void @llvm.lifetime.end.p0i8(i64 6, i8* nonnull %21)
+  br label %24
+
+24:                                               ; preds = %18, %15
+  %25 = phi %class.Packet* [ %23, %18 ], [ null, %15 ]
+  ret %class.Packet* %25
+}
+
+define internal i8* @_ZNK11EtherMirror10class_nameEv(%class.SimpleElement* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.64.13068, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK11EtherMirror10port_countEv(%class.SimpleElement* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([2 x i8], [2 x i8]* @_ZN7Element9PORTS_1_1E, i64 0, i64 0)
+}
+
+define dso_local %class.PacketBatch* @_ZN11EtherMirror19simple_action_batchEP11PacketBatch(%class.SimpleElement* nocapture readnone %0, %class.PacketBatch* %1) unnamed_addr #0 align 2 {
+  %3 = alloca [6 x i8], align 1
+  %4 = icmp eq %class.PacketBatch* %1, null
+  br i1 %4, label %5, label %9
+
+5:                                                ; preds = %2
+  %6 = load i16, i16* inttoptr (i64 72 to i16*), align 8, !tbaa !20287
+  %7 = icmp eq i16 %6, 0
+  br i1 %7, label %8, label %83
+
+8:                                                ; preds = %5
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+9:                                                ; preds = %2
+  %10 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %1, i64 48, i32 0
+  %11 = getelementptr inbounds i8, i8* %10, i64 24
+  %12 = bitcast i8* %11 to i16*
+  %13 = load i16, i16* %12, align 2, !tbaa !20287
+  %14 = icmp eq i16 %13, 0
+  br i1 %14, label %15, label %16
+
+15:                                               ; preds = %9
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+16:                                               ; preds = %9
+  %17 = zext i16 %13 to i32
+  %18 = bitcast %class.PacketBatch* %1 to %class.Packet*
+  %19 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %1, i64 136
+  %20 = bitcast %class.PacketBatch* %19 to %class.Packet**
+  %21 = getelementptr inbounds [6 x i8], [6 x i8]* %3, i64 0, i64 0
+  br label %22
+
+22:                                               ; preds = %67, %16
+  %23 = phi %class.PacketBatch* [ %1, %16 ], [ %70, %67 ]
+  %24 = phi i32 [ %17, %16 ], [ %69, %67 ]
+  %25 = phi %class.Packet* [ null, %16 ], [ %68, %67 ]
+  %26 = phi %class.Packet* [ %18, %16 ], [ %28, %67 ]
+  %27 = phi %class.Packet** [ %20, %16 ], [ %72, %67 ]
+  %28 = load %class.Packet*, %class.Packet** %27, align 8, !tbaa !20284
+  %29 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 1
+  %30 = load %class.Packet*, %class.Packet** %29, align 8, !tbaa !20801
+  %31 = icmp eq %class.Packet* %30, null
+  br i1 %31, label %32, label %38
+
+32:                                               ; preds = %22
+  %33 = getelementptr inbounds %class.Packet, %class.Packet* %26, i64 0, i32 0, i32 0
+  %34 = load volatile i32, i32* %33, align 4, !tbaa !20799
+  %35 = icmp ugt i32 %34, 1
+  br i1 %35, label %38, label %36
+
+36:                                               ; preds = %32
+  %37 = bitcast %class.Packet* %26 to %class.WritablePacket*
+  br label %40
+
+38:                                               ; preds = %32, %22
+  %39 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %26, i32 0, i32 0, i1 zeroext true)
+  br label %40
+
+40:                                               ; preds = %38, %36
+  %41 = phi %class.WritablePacket* [ %39, %38 ], [ %37, %36 ]
+  %42 = icmp eq %class.WritablePacket* %41, null
+  br i1 %42, label %49, label %43
+
+43:                                               ; preds = %40
+  %44 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %41, i64 0, i32 0, i32 3
+  %45 = load i8*, i8** %44, align 8, !tbaa !20399
+  call void @llvm.lifetime.start.p0i8(i64 6, i8* nonnull %21)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %21, i8* nonnull align 1 dereferenceable(6) %45, i64 6, i1 false)
+  %46 = getelementptr inbounds i8, i8* %45, i64 6
+  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %45, i8* nonnull align 1 dereferenceable(6) %46, i64 6, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 1 dereferenceable(6) %46, i8* nonnull align 1 dereferenceable(6) %21, i64 6, i1 false)
+  %47 = getelementptr %class.WritablePacket, %class.WritablePacket* %41, i64 0, i32 0
+  call void @llvm.lifetime.end.p0i8(i64 6, i8* nonnull %21)
+  %48 = icmp eq %class.Packet* %47, %26
+  br i1 %48, label %67, label %58
+
+49:                                               ; preds = %40
+  %50 = icmp eq %class.Packet* %25, null
+  br i1 %50, label %53, label %51
+
+51:                                               ; preds = %49
+  %52 = getelementptr inbounds %class.Packet, %class.Packet* %25, i64 0, i32 6, i32 6
+  store %class.Packet* %28, %class.Packet** %52, align 8, !tbaa !20337
+  br label %55
+
+53:                                               ; preds = %49
+  %54 = bitcast %class.Packet* %28 to %class.PacketBatch*
+  br label %55
+
+55:                                               ; preds = %53, %51
+  %56 = phi %class.PacketBatch* [ %23, %51 ], [ %54, %53 ]
+  %57 = add nsw i32 %24, -1
+  br label %67
+
+58:                                               ; preds = %43
+  %59 = icmp eq %class.Packet* %25, null
+  br i1 %59, label %62, label %60
+
+60:                                               ; preds = %58
+  %61 = getelementptr inbounds %class.Packet, %class.Packet* %25, i64 0, i32 6, i32 6
+  store %class.Packet* %47, %class.Packet** %61, align 8, !tbaa !20337
+  br label %64
+
+62:                                               ; preds = %58
+  %63 = bitcast %class.WritablePacket* %41 to %class.PacketBatch*
+  br label %64
+
+64:                                               ; preds = %62, %60
+  %65 = phi %class.PacketBatch* [ %23, %60 ], [ %63, %62 ]
+  %66 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %41, i64 0, i32 0, i32 6, i32 6
+  store %class.Packet* %28, %class.Packet** %66, align 8, !tbaa !20337
+  br label %67
+
+67:                                               ; preds = %64, %55, %43
+  %68 = phi %class.Packet* [ %25, %55 ], [ %26, %43 ], [ %47, %64 ]
+  %69 = phi i32 [ %57, %55 ], [ %24, %43 ], [ %24, %64 ]
+  %70 = phi %class.PacketBatch* [ %56, %55 ], [ %23, %43 ], [ %65, %64 ]
+  %71 = icmp eq %class.Packet* %28, null
+  %72 = getelementptr inbounds %class.Packet, %class.Packet* %28, i64 0, i32 6, i32 6
+  br i1 %71, label %73, label %22
+
+73:                                               ; preds = %67
+  %74 = icmp eq %class.PacketBatch* %70, null
+  br i1 %74, label %83, label %75
+
+75:                                               ; preds = %73
+  %76 = trunc i32 %69 to i16
+  %77 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %70, i64 48, i32 0
+  %78 = getelementptr inbounds i8, i8* %77, i64 24
+  %79 = bitcast i8* %78 to i16*
+  store i16 %76, i16* %79, align 2, !tbaa !20287
+  %80 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %70, i64 144
+  %81 = bitcast %class.PacketBatch* %80 to %class.Packet**
+  store %class.Packet* %68, %class.Packet** %81, align 8, !tbaa !20334
+  %82 = getelementptr inbounds %class.Packet, %class.Packet* %68, i64 0, i32 6, i32 6
+  store %class.Packet* null, %class.Packet** %82, align 8, !tbaa !20337
+  br label %83
+
+83:                                               ; preds = %75, %73, %5
+  %84 = phi %class.PacketBatch* [ null, %73 ], [ %70, %75 ], [ null, %5 ]
+  ret %class.PacketBatch* %84
+}
+
+
+
+/***  ethermirror.hh ***/
+
+#ifndef CLICK_ETHERMIRROR_HH
+#define CLICK_ETHERMIRROR_HH
+#include <click/batchelement.hh>
+CLICK_DECLS
+
+/*
+ * =c
+ * EtherMirror()
+ * =s ethernet
+ * swaps Ethernet source and destination
+ * =d
+ *
+ * Incoming packets are Ethernet. Their source and destination Ethernet
+ * addresses are swapped before they are output.
+ * */
+
+class EtherMirror : public BatchElement {
+    public:
+
+        EtherMirror() CLICK_COLD;
+        ~EtherMirror() CLICK_COLD;
+
+        const char *class_name() const override    { return "EtherMirror"; }
+        const char *port_count() const override    { return PORTS_1_1; }
+
+        Packet      *simple_action      (Packet *);
+    #if HAVE_BATCH
+        PacketBatch *simple_action_batch(PacketBatch *);
+    #endif
+};
+
+CLICK_ENDDECLS
+#endif // CLICK_ETHERMIRROR_HH
+
+

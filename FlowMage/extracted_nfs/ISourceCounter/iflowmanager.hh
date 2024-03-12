@@ -1,0 +1,231 @@
+#ifndef CLICK_IFLOWMANAGER_HH
+#define CLICK_IFLOWMANAGER_HH
+#include <click/config.h>
+#include <click/glue.hh>
+#include <click/vector.hh>
+#include <click/batchelement.hh>
+#include <random>
+#include <rte_hash.h>
+#include <rte_errno.h>
+
+
+
+class IState {
+    public:
+        atomic_uint32_t count;
+};
+
+template<class State>
+class IStateManager { public:
+   //The table of FCBs
+    State *fcbs;
+    void *hash = 0;
+
+    rte_rwlock_t *readwrite_lock;
+
+    int _failed_searches = 0;
+    int _successful_searches = 0;
+
+    void **key_array = new void*[256];
+    int* rets = new int[256];
+    uint32_t* hashes = new uint32_t[256];
+
+};
+
+
+template<class State>
+class IFlowManager : public BatchElement {
+
+public:
+
+    IFlowManager() : _shared(true)  {
+
+    };
+
+    ~IFlowManager() CLICK_COLD {
+
+    };
+
+//    const char *class_name() const override		{ return "IFlowManager"; }
+//    const char *port_count() const override		{ return "1/1"; }
+//    const char *processing() const override		{ return PUSH; }
+
+
+    int parse(Args *args) {
+        int ret =
+            (*args)
+                .read_or_set("SHARED", _shared, 1)
+                .read_or_set("SIZE", _capacity, 100)
+                .consume();
+        return ret;
+    }
+
+    int configure(Vector<String> &conf, ErrorHandler *errh){
+        if (Args(conf, this, errh)
+               .complete() < 0)
+        return -1;
+    
+        return 0;
+    }
+
+
+    int initialize(ErrorHandler *errh){
+        auto passing = get_passing_threads();
+        _tables.compress(passing);
+    
+        if(!_shared)
+            _capacity = next_pow2(_capacity/passing.weight());
+
+        click_chatter("capacity is: %d", _capacity );
+    
+        int table_count;
+        if (_shared)
+            table_count = 1;
+        else
+            table_count = _tables.weight();
+    
+        click_chatter("Start allocating hash tables...!");
+        for(int i= 0; i<table_count ; i++){
+            IStateManager<State> &t = _tables.get_value(i);
+            int core = _tables.get_mapping(i);
+
+            if ( alloc(t,core,errh) != 0) {
+                return -1;
+            }
+
+            _table = &t;
+        }
+
+        return 0;
+    }
+    
+    int alloc(IStateManager<State>& table, int core, ErrorHandler* errh){
+        struct rte_hash_parameters hash_params = {0};
+
+        char buf[64];
+        sprintf(buf, "%i-%s", core, name().c_str());
+    
+        hash_params.name = buf;
+        hash_params.entries = _capacity;
+
+        hash_params.key_len = sizeof(uint32_t);
+        hash_params.hash_func = ipv4_hash_crc_nothing;
+        hash_params.hash_func_init_val = 0;
+        hash_params.extra_flag = RTE_HASH_EXTRA_FLAGS_MULTI_WRITER_ADD | RTE_HASH_EXTRA_FLAGS_RW_CONCURRENCY | RTE_HASH_EXTRA_FLAGS_TRANS_MEM_SUPPORT;
+//        hash_params.extra_flag = RTE_HASH_EXTRA_FLAGS_MULTI_WRITER_ADD | RTE_HASH_EXTRA_FLAGS_RW_CONCURRENCY;
+
+        sprintf(buf, "%d-%s",core ,name().c_str());
+        table.hash = rte_hash_create(&hash_params);
+        if (!table.hash)
+            return errh->error("Could not init flow table %d : error %d (%s)!", core, rte_errno, rte_strerror(rte_errno));
+
+        click_chatter("state size is: %d", sizeof(State));
+        table.fcbs =  (State*) CLICK_ALIGNED_ALLOC(sizeof(State) * _capacity);
+        CLICK_ASSERT_ALIGNED(table.fcbs);
+        bzero(table.fcbs, sizeof(State) * _capacity);
+        if (!table.fcbs) {
+            return errh->error("Could not init data for table core %d!", core);
+        }
+
+        return 0;
+    }
+
+    void push_batch(int, PacketBatch *batch){
+        rte_hash *table = _shared ? reinterpret_cast<rte_hash *> (_table->hash) : reinterpret_cast<rte_hash *> (_tables->hash);
+        State* fcbs = _shared ? (_table->fcbs) : (_tables->fcbs);
+    
+        void **key_array = _tables->key_array;
+        int *ret =_tables->rets;
+
+
+        int index = 0;
+        FOR_EACH_PACKET(batch, p){
+            _tables->hashes[index] = calculate_hash(p); 
+            key_array[index] = &(_tables->hashes[index]);
+//            key_array[index] = const_cast<void*>(static_cast<const void*>(&(p->ip_header()->ip_src)));
+//        _tables->flowIDs[index] = IPFlow5ID(p);
+//        key_array[index] = &(_tables->flowIDs[index]);
+        
+            index++;
+        }
+
+        rte_hash_lookup_bulk(table, const_cast<const void **>(key_array), batch->count(), ret);
+
+        int i = 0;
+        FOR_EACH_PACKET_SAFE(batch, pkt) {
+            int found_index = ret[i];
+            if (found_index < 0){
+    //            click_chatter("inserting i=%d: %d", i, *(static_cast<uint32_t*>(key_array[i])));
+                found_index = rte_hash_add_key(table, key_array[i]);
+                if (found_index < 0){
+                    click_chatter("Problem with inserting data! %d", found_index);
+                    continue;
+                }
+            }
+            
+            State* flowdata = static_cast<State*>((void*)&fcbs[found_index]);
+            
+//            if(_shared)
+//                rte_rwlock_write_lock(_table->readwrite_lock);
+
+            process(flowdata, pkt);
+
+//            if(_shared)
+//                rte_rwlock_write_unlock(_table->readwrite_lock);
+            
+            i++;
+        }
+
+        output_push_batch(0, batch);
+    }
+    
+
+    void add_handlers(){
+        add_read_handler("count", read_handler, h_count);
+    }
+
+    static String read_handler(Element *e, void *thunk){
+        IFlowManager *c = reinterpret_cast<IFlowManager *>(e);
+
+        switch (reinterpret_cast<uintptr_t>(thunk)) {
+            case h_count: {
+                if (!c->_shared){
+                    int total = 0;
+                    for (int i = 0; i < c->_tables.weight(); i++) {
+                        auto *table = reinterpret_cast<rte_hash*>(c->_tables.get_value(i).hash);
+                        total += rte_hash_count(table);
+                    }
+                    return String(total);
+                } 
+                auto *table = reinterpret_cast<rte_hash*>((c->_table)->hash);
+                return String(rte_hash_count(table));
+            }
+            default: {
+                return String();
+            }
+        }
+    }
+
+    virtual inline uint32_t calculate_hash(Packet* packet){
+        click_chatter("Wrong place to execute claculate hash!");
+        return 0;
+    }
+
+    virtual inline void process(State* , Packet*){
+        return;
+    };
+
+protected:
+    bool _shared;
+
+private:
+
+    enum { h_count };
+    
+    int _capacity;
+    per_thread_oread<IStateManager<State>> _tables;
+    IStateManager<State> *_table;
+};
+
+
+#endif

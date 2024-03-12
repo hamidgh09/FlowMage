@@ -1,0 +1,2576 @@
+/***  flowelement.hh ***/
+
+// -*- c-basic-offset: 4 -*-
+#ifndef CLICK_FLOWELEMENT_HH
+#define CLICK_FLOWELEMENT_HH
+#include <click/glue.hh>
+#include <click/vector.hh>
+#include <click/string.hh>
+#include <click/batchelement.hh>
+#include <click/routervisitor.hh>
+#include <click/pair.hh>
+#include "flow.hh"
+
+
+CLICK_DECLS
+
+#ifdef HAVE_FLOW
+# if HAVE_CTX
+class CTXManager;
+# endif
+class VirtualFlowManager;
+
+enum FlowType {
+    FLOW_NONE = 0,
+    FLOW_ETHER,
+    FLOW_ARP,
+    FLOW_IP,
+    FLOW_TCP,
+    FLOW_UDP,
+    FLOW_ICMP,
+    FLOW_HTTP
+};
+
+class FlowElement : public BatchElement {
+public:
+    FlowElement();
+    ~FlowElement();
+
+    //Those should actually be in some kind of base CTXElement
+# if HAVE_CTX
+    virtual FlowNode* get_table(int iport, Vector<FlowElement*> contextStack);
+
+    virtual FlowNode* resolveContext(FlowType, Vector<FlowElement*> stack);
+# endif
+    virtual FlowType getContext(int port);
+
+    virtual bool stopClassifier() { return false; };
+
+#if HAVE_FLOW_DYNAMIC
+    inline void fcb_acquire(int count = 1) {
+        fcb_stack->acquire(count);
+    }
+    inline void fcb_update(int count) {
+        if (count > 0)
+            fcb_stack->acquire(count);
+        else if (count < 0)
+            fcb_stack->release(-count);
+    }
+
+    inline void fcb_release(int count = 1) {
+        fcb_stack->release(count);
+    }
+#else
+    inline void fcb_acquire(int count = 1) {
+        (void)count;
+    }
+    inline void fcb_update(int) {}
+    inline void fcb_release(int count = 1) {
+        (void)count;
+    }
+#endif
+
+};
+
+/**
+ * Element that needs FCB space
+ */
+class VirtualFlowSpaceElement : public FlowElement {
+public:
+    VirtualFlowSpaceElement();
+
+    virtual const size_t flow_data_size() const = 0;
+    virtual const int flow_data_index() const {
+        return -1;
+    }
+    virtual const int flow_announce_manager(VirtualFlowManager* manager, ErrorHandler* errh)  const {
+        return 0;
+    }
+    inline void set_flow_data_offset(int offset) {_flow_data_offset = offset; }
+    inline int flow_data_offset() {return _flow_data_offset; }
+
+    int configure_phase() const        { return CONFIGURE_PHASE_DEFAULT + 5; }
+
+    void *cast(const char *name) override;
+
+
+#if HAVE_CTX_GLOBAL_TIMEOUT
+    inline void ctx_acquire_timeout(int nmsec) {
+        //Do not set a smaller timeout
+        if ((fcb_stack->flags & FLOW_TIMEOUT) && (nmsec <= (int)(fcb_stack->flags >> FLOW_TIMEOUT_SHIFT))) {
+#if DEBUG_CLASSIFIER_TIMEOUT > 1
+        click_chatter("Acquiring timeout of %p, not changing it, flag %d",this,fcb_stack->flags);
+#endif
+                return;
+        }
+#if DEBUG_CLASSIFIER_TIMEOUT > 1
+        click_chatter("Acquiring timeout of %p to %d, flag %d",this,nmsec,fcb_stack->flags);
+#endif
+        fcb_stack->flags = (nmsec << FLOW_TIMEOUT_SHIFT) | FLOW_TIMEOUT | ((fcb_stack->flags & FLOW_TIMEOUT_INLIST) ? FLOW_TIMEOUT_INLIST : 0);
+    }
+
+    inline void ctx_release_timeout() {
+#if DEBUG_CLASSIFIER_TIMEOUT > 1
+        click_chatter("Releasing timeout of %p",this);
+#endif
+        //If the timeout is in list, we must not put it back in the pool
+        if (fcb_stack->flags & FLOW_TIMEOUT_INLIST)
+            assert(fcb_stack->flags & FLOW_TIMEOUT);
+        if ((fcb_stack->flags & FLOW_TIMEOUT) && (fcb_stack->flags & FLOW_TIMEOUT_INLIST))
+            fcb_stack->flags = 0 | FLOW_TIMEOUT | FLOW_TIMEOUT_INLIST;
+        else
+            fcb_stack->flags = 0;
+    }
+#else
+    inline void ctx_acquire_timeout(int nmsec) {
+        //TODO : use a local timer
+        fcb_acquire();
+    }
+
+    inline void ctx_release_timeout() {
+        fcb_release();
+    }
+#endif
+
+#if HAVE_FLOW_DYNAMIC
+    inline void fcb_set_release_fnt(struct FlowReleaseChain* fcb_chain, SubFlowRealeaseFnt fnt) {
+        fcb_chain->previous_fnt = fcb_stack->release_fnt;
+        fcb_chain->previous_thunk = fcb_stack->thunk;
+        fcb_stack->release_fnt = fnt;
+        fcb_stack->thunk = this;
+#if DEBUG_CLASSIFIER_RELEASE
+        click_chatter("Release fnt set to %p, was %p",fcb_stack->release_fnt,fcb_chain->previous_fnt);
+#endif
+    }
+    inline void fcb_remove_release_fnt(struct FlowReleaseChain* fcb_chain, SubFlowRealeaseFnt fnt) {
+        debug_flow("Release fnt remove %p",fnt);
+        if (likely(fcb_stack->release_fnt == fnt)) { //Normally it will call the chain in the same order
+            fcb_stack->release_fnt = fcb_chain->previous_fnt;
+            fcb_stack->thunk = fcb_chain->previous_thunk;
+            debug_flow("Release removed is now to %p",fcb_stack->release_fnt);
+        } else {
+            SubFlowRealeaseFnt chain_fnt = fcb_stack->release_fnt;
+            VirtualFlowSpaceElement* fe = static_cast<VirtualFlowSpaceElement*>(fcb_stack->thunk);
+            FlowReleaseChain* frc;
+            do {
+                if (fe == 0) {
+                    click_chatter("BAD ERROR : Trying to remove a timeout flow function that is not set...");
+                    return;
+                }
+
+                frc = reinterpret_cast<FlowReleaseChain*>(&fcb_stack->data[fe->_flow_data_offset]);
+                chain_fnt = frc->previous_fnt;
+                if (chain_fnt == 0) {
+                    click_chatter("ERROR : Trying to remove a timeout flow function that is not set...");
+                    return;
+                }
+                fe = static_cast<VirtualFlowSpaceElement*>(frc->previous_thunk);
+            } while (chain_fnt != fnt);
+            frc->previous_fnt = fcb_chain->previous_fnt;
+            frc->previous_thunk = fcb_chain->previous_thunk;
+        }
+    }
+#else
+    inline void fcb_set_release_fnt(struct FlowReleaseChain*, SubFlowRealeaseFnt) {
+        click_chatter("ERROR: YOU MUST HAVE DYNAMIC FLOW RELEASE FNT fct setted !");
+        assert(false);
+    }
+#endif
+
+
+    virtual PacketBatch* pull_batch(int port, unsigned max) override final {
+        click_chatter("ERROR : Flow Elements do not support pull");
+        return 0;
+    }
+
+    int initialize(ErrorHandler *errh) override CLICK_COLD {
+        //The element itself is automatically posted by build_fcb via  fcb_builded_init_future
+        return 0;
+    }
+protected:
+
+    int _flow_data_offset;
+    friend class FlowBufferVisitor;
+    friend class VirtualFlowManager;
+};
+
+# if HAVE_FLOW_DYNAMIC
+class UnstackVisitor : public RouterVisitor {
+public:
+    bool visit(Element *e, bool isoutput, int port,
+                   Element *from_e, int from_port, int distance);
+
+};
+# endif
+
+
+
+/**
+ * This future will only trigger once it is called N times.
+ * N is increased by calling add(). The typical usage is a future
+ * that will only trigger when all parents have called. To do this,
+ * you call add() in the constructor of the parents.
+ */
+class CounterInitFuture : public Router::ChildrenFuture { public:
+    CounterInitFuture(String name, std::function<int(ErrorHandler*)> on_reached);
+    CounterInitFuture(String name, std::function<void(void)> on_reached);
+
+    virtual void notifyParent(InitFuture* future) override;
+
+    virtual int solve_initialize(ErrorHandler* errh) override;
+
+    virtual int completed(ErrorHandler* errh) override;
+private:
+    int _n;
+    String _name;
+    std::function<int(ErrorHandler*)> _on_reached;
+};
+
+/**
+ * Element that allocates some FCB Space
+ */
+class VirtualFlowManager : public FlowElement { public:
+    VirtualFlowManager();
+
+    static CounterInitFuture* fcb_builded_init_future() {
+        return &_fcb_builded_init_future;
+    }
+
+    static CounterInitFuture _fcb_builded_init_future;
+
+protected:
+    int _reserve;
+
+    typedef Pair<Element*,int> EDPair;
+    Vector<EDPair>  _reachable_list;
+
+    static Vector<VirtualFlowManager*> _entries;
+
+
+    void find_children(int verbose = 0);
+
+    static void _build_fcb(int verbose,  bool ordered);
+    static void build_fcb();
+    virtual void fcb_built() {
+
+    }
+
+    bool stopClassifier() { return true; };
+
+    friend class CTXElement;
+};
+
+
+template<typename T> class FlowSpaceElement : public VirtualFlowSpaceElement {
+
+public :
+
+    FlowSpaceElement() CLICK_COLD;
+
+    void fcb_set_init_data(FlowControlBlock* fcb, const T data) CLICK_COLD;
+
+    virtual const size_t flow_data_size()  const override { return sizeof(T); }
+
+
+    /**
+     * Return the T type for a given FCB
+     */
+    inline T* fcb_data_for(FlowControlBlock* fcb) {
+        T* flowdata = static_cast<T*>((void*)&fcb->data[_flow_data_offset]);
+        return flowdata;
+    }
+
+    /**
+     * Return the T type in the current FCB on the stack
+     */
+    inline T* fcb_data() {
+        return fcb_data_for(fcb_stack);
+    }
+
+    void push_batch(int port, PacketBatch* head) final {
+            push_flow(port, fcb_data(), head);
+    };
+
+    virtual void push_flow(int port, T* flowdata, PacketBatch* head) = 0;
+};
+
+class DefaultChecker { public:
+    struct str  {
+        bool seen;
+    };
+    static inline bool seen(void*, str* s) {
+        return s->seen;;
+    }
+    static inline void mark_seen(void*, str* s) {
+        s->seen = true;
+    }
+    static inline void release(void*, str* s) {
+        s->seen = false;
+    }
+};
+
+/**
+ * FlowStateElement is like FlowSpaceElement but handle a timeout and a release functions
+ *
+ * The child must implement :
+ * static const int timeout; //Timeout in msec for a flow
+ * bool new_flow(T*, Packet*);
+ * void push_batch(int port, T*, Packet*);
+ * void release_flow(T*);
+ *
+ * close_flow() can be called to release the flow now, remove timer etc It will not call your release_flow(); automatically, do it before. A packet coming for the same flow after close_flow() is called will be considered from a new flow (seen flag is reset).
+ */
+template<class Derived, typename T, typename Checker = DefaultChecker> class FlowStateElement : public VirtualFlowSpaceElement {
+    struct AT : public FlowReleaseChain {
+        T v;
+        typename Checker::str str;
+    };
+public :
+
+    typedef FlowStateElement<Derived, T, Checker> derived;
+
+    FlowStateElement() CLICK_COLD;
+
+    virtual const size_t flow_data_size()  const { return sizeof(AT); }
+    virtual const int flow_announce_manager(Element* manager, ErrorHandler* errh)  const {
+        if (Derived::timeout > 0) {
+            if (manager->cast("CTXManager") == 0) {
+                errh->warning("The timeout of %dms of %p{element} is ignored, only the flow manager %p{element} timeout is prevalent.", Derived::timeout, this, manager);
+            }
+        }
+        return 0;
+     }
+
+    /**
+     * CRTP virtual
+     */
+    inline bool new_flow(T*, Packet*) {
+        return true;
+    }
+
+    inline FlowControlBlock* stack_from_flow(void* ptr) {
+        return (FlowControlBlock*)(((uint8_t*)ptr) - _flow_data_offset - sizeof(FlowControlBlock));
+    }
+
+    /**
+     * Return the T type for a given FCB
+     */
+    inline T* fcb_data_for(FlowControlBlock* fcb) {
+        AT* flowdata = static_cast<AT*>((void*)&fcb->data[_flow_data_offset]);
+        return &flowdata->v;
+    }
+
+    /**
+     * Return the T type in the current FCB on the stack
+     */
+    inline T* fcb_data() {
+        return fcb_data_for(fcb_stack);
+    }
+
+    static void release_fnt(FlowControlBlock* fcb, void* thunk ) {
+        Derived* derived = static_cast<Derived*>(thunk);
+        AT* my_fcb = reinterpret_cast<AT*>(&fcb->data[derived->_flow_data_offset]);
+        derived->release_flow(&my_fcb->v);
+        if (my_fcb->previous_fnt)
+            my_fcb->previous_fnt(fcb, my_fcb->previous_thunk);
+    }
+
+    void push_batch(int port, PacketBatch* head) {
+#if FLOW_PUSH_BATCH
+        T** fcbs = new T*[head->count()]; 
+        int i = 0;
+
+        int idx = 0;
+        Packet* p = head->first();
+        Packet* fep_next = ((p != 0)? p->next() : 0 );
+        for (;p != 0;idx++,p=fep_next,fep_next=(p==0?0:p->next())) {
+/*            if (idx < (head->count() - 2)){
+                auto *next_fcb = *(fcb_queue+2);
+                rte_prefetch0((void*)&next_fcb->data[_flow_data_offset]);
+            }
+*/
+            auto my_fcb = my_fcb_data_from_queue(FLOW_ID_ANNO(p));
+            if (!Checker::seen(&my_fcb->v, &my_fcb->str)) {
+                if (likely(static_cast<Derived*>(this)->new_flow(&my_fcb->v, p))) {
+                    Checker::mark_seen(&my_fcb->v, &my_fcb->str);
+                    if (Derived::timeout > 0)
+                        this->ctx_acquire_timeout(Derived::timeout);
+#if HAVE_FLOW_DYNAMIC
+                        this->fcb_set_release_fnt(my_fcb, &release_fnt);
+#endif
+                } else { //TODO set early drop?
+                    head->fast_kill();
+                    return;
+                }
+            }
+
+           if(static_cast<Derived*>(this)->is_fcb_large())
+               static_cast<Derived*>(this)->prefetch_fcb(0, &my_fcb->v);
+           fcbs[i] = &my_fcb->v;
+           i++;
+        }
+
+        static_cast<Derived*>(this)->push_flow_batch(port, fcbs, head);
+
+        output_push_batch(0, head);
+#else
+         auto my_fcb = my_fcb_data();
+         if (!Checker::seen(&my_fcb->v, &my_fcb->str)) {
+             if (static_cast<Derived*>(this)->new_flow(&my_fcb->v, head->first())) {
+                 Checker::mark_seen(&my_fcb->v, &my_fcb->str);
+                 if (Derived::timeout > 0)
+                     this->ctx_acquire_timeout(Derived::timeout);
+#if HAVE_FLOW_DYNAMIC
+                 this->fcb_set_release_fnt(my_fcb, &release_fnt);
+#endif
+             } else { //TODO set early drop?
+                 head->fast_kill();
+                 return;
+             }
+         }
+         static_cast<Derived*>(this)->push_flow(port, &my_fcb->v, head);
+#endif
+    };
+
+    void close_flow() {
+        if (Derived::timeout > 0) {
+            this->ctx_release_timeout();
+        }
+#if HAVE_FLOW_DYNAMIC
+        this->fcb_remove_release_fnt(my_fcb_data(), &release_fnt);
+#endif
+        Checker::release(&my_fcb_data()->v, &my_fcb_data()->str);
+    }
+
+#if FLOW_PUSH_BATCH
+    /* TODO: This should be virtual and implemented by each element, for now let's put an empty body for testing */
+    void push_flow_batch(int port, T** flowdata, PacketBatch *head) {
+
+    }
+    void prefetch_fcb(int, T*) {
+
+    }
+
+    bool is_fcb_large(){
+        return 0;
+    }
+
+#endif
+
+private:
+    inline AT* my_fcb_data() {
+        return static_cast<AT*>((void*)&fcb_stack->data[_flow_data_offset]);
+    }
+
+#if FLOW_PUSH_BATCH
+    inline AT* my_fcb_data_from_queue(uint8_t offset) {
+        auto *fcb = *(fcb_queue + offset);
+        return static_cast<AT*>((void*)&fcb->data[_flow_data_offset]);
+    }
+#endif
+
+};
+
+
+template<typename T, int index> class FlowSharedBufferElement : public FlowSpaceElement<T> {
+
+public :
+
+	FlowSharedBufferElement() : FlowSpaceElement<T>() {
+
+	}
+
+	const size_t flow_data_size()  const final { return sizeof(T); }
+	const int flow_data_index()  const final { return index; }
+};
+
+
+
+#define DefineFlowSharedBuffer(name,type,index) class FlowSharedBuffer ## name ## Element : public FlowSharedBufferElement<type,index>{ };
+
+DefineFlowSharedBuffer(Paint,int,0);
+#define NR_SHARED_FLOW 1
+
+class FlowElementVisitor : public RouterVisitor {
+public:
+    Element* origin;
+	FlowElementVisitor(Element* e) : origin(e) {
+
+	}
+
+	struct inputref {
+	    FlowElement* elem;
+	    int iport;
+	};
+	Vector<struct inputref> dispatchers;
+
+	bool visit(Element *e, bool isoutput, int port,
+			       Element *from_e, int from_port, int distance) {
+        (void)from_e;
+        (void)from_port;
+        (void)distance;
+		FlowElement* dispatcher = dynamic_cast<FlowElement*>(e);
+		if (dispatcher != NULL) {
+		    if (dispatcher == origin)
+		        return false;
+		    struct inputref ref = {.elem = dispatcher, .iport = port};
+			dispatchers.push_back(ref);
+			return false;
+		} else {
+
+		}
+        /*if (v.dispatchers[i] == (FlowElement*)e) {
+            click_chatter("Classification loops are unsupported, place another CTXManager before reinjection of the packets.");
+            e->router()->please_stop_driver();
+            return 0;
+        }*/
+		return true;
+	}
+
+	static FlowNode* get_downward_table(Element* e, int output, Vector<FlowElement*> context, bool resolve_context = false);
+};
+
+/**
+ * FlowSpaceElement
+ */
+
+template<typename T>
+FlowSpaceElement<T>::FlowSpaceElement() : VirtualFlowSpaceElement() {
+}
+
+# if HAVE_CTX
+template<typename T>
+void FlowSpaceElement<T>::fcb_set_init_data(FlowControlBlock* fcb, const T data) {
+    for (int i = 0; i < sizeof(T); i++) {
+        if (fcb->data[FCBPool::init_data_size() + _flow_data_offset + i] && fcb->data[_flow_data_offset + i] != ((uint8_t*)&data)[i]) {
+            click_chatter("In %p{element} for offset %d :",this, _flow_data_offset+i);
+            click_chatter("Index [%d] : Cannot set data to %d, as it is already %d",i,*((T*)(&fcb->data[_flow_data_offset])),data);
+            click_chatter("Is marked as set : %d", fcb->data[FCBPool::init_data_size() + _flow_data_offset + i]);
+            fcb->reverse_print();
+
+            click_chatter("It generally means your graph is messed up");
+            assert(false);
+        }
+        fcb->data[FCBPool::init_data_size() + _flow_data_offset + i] = 0xff;
+    }
+    *((T*)(&fcb->data[_flow_data_offset])) = data;
+}
+# endif
+
+/**
+ * FlowSpaceElement
+ */
+
+template<class Derived, typename T, typename Checker>
+FlowStateElement<Derived, T, Checker>::FlowStateElement() : VirtualFlowSpaceElement() {
+}
+
+/**
+ * Macro to define context
+ *
+ * In practice it will overwrite get_table
+ */
+# if HAVE_CTX
+
+#define DEFAULT_4TUPLE "12/0/ffffffff:HASH-3 16/0/ffffffff:HASH-3 20/0/ffffffff:HASH-3"
+
+//Those should not be used anymore, as the FLOW_CONTEXT is a much better alternative that assuming the top session is IP...
+#define TCP_SESSION "9/06! 12/0/ffffffff:HASH-3 16/0/ffffffff:HASH-3 20/0/ffffffff:HASH-3"
+#define UDP_SESSION "9/11! 12/0/ffffffff:HASH-3 16/0/ffffffff:HASH-3 20/0/ffffffff:HASH-3"
+
+//Use only one of the 3 following macros
+
+/**
+ * Define a context (such as FLOW_IP) but no rule/session
+ */
+#define FLOW_ELEMENT_DEFINE_CONTEXT(ft) \
+FlowNode* get_table(int iport, Vector<FlowElement*> context) override CLICK_COLD {\
+    context.push_back(this);\
+    return FlowElement::get_table(iport, context);\
+}\
+virtual FlowType getContext(int) override {\
+    return ft;\
+}\
+
+/**
+ * Define a context (such as FLOW_TCP) and a rule/session definition
+ */
+#define FLOW_ELEMENT_DEFINE_SESSION_CONTEXT(rule,ft) \
+FlowNode* get_table(int iport, Vector<FlowElement*> contextStack) override CLICK_COLD {\
+    if (ft)\
+        contextStack.push_back(this);\
+    FlowNode* down = FlowElement::get_table(iport,contextStack); \
+    FlowNode* my = FlowClassificationTable::parse(this,rule).root;\
+    return my->combine(down, true, true, true, this);\
+}\
+virtual FlowType getContext(int) override {\
+    return ft;\
+}\
+
+/**
+ * Define only a rule/session definition but no context
+ */
+#define FLOW_ELEMENT_DEFINE_SESSION(rule) \
+        FLOW_ELEMENT_DEFINE_SESSION_CONTEXT(rule,FLOW_NONE)
+
+/**
+ * Defin two rules/sessions but no context
+ */
+#define FLOW_ELEMENT_DEFINE_SESSION_DUAL(ruleA,ruleB) \
+FlowNode* get_table(int iport, Vector<FlowElement*> context) override CLICK_COLD {\
+    return FlowClassificationTable::parse(this,ruleA).root->combine(FlowClassificationTable::parse(this,ruleB).root,false,false,true,this)->combine(FlowElement::get_table(iport,context), true, true, true, this);\
+}
+
+/**
+ * Define the context no matter the input port, and a rule but only for one specific port
+ */
+#define FLOW_ELEMENT_DEFINE_PORT_SESSION_CONTEXT(port_num,rule,ft) \
+FlowNode* get_table(int iport, Vector<FlowElement*> contextStack) override {\
+    if (iport == port_num) {\
+        return FlowClassificationTable::parse(this,rule).root->combine(FlowElement::get_table(iport,contextStack), true, true, true, this);\
+    }\
+    if (ft)\
+        contextStack.push_back(this);\
+    return FlowElement::get_table(iport,contextStack);\
+}\
+virtual FlowType getContext(int) override {\
+    return ft;\
+}
+
+#endif
+#else //Not even HAVE_FLOW
+typedef BatchElement FlowElement;
+#endif
+#if !defined(HAVE_CTX)
+#define FLOW_ELEMENT_DEFINE_SESSION(rule,context)
+#define FLOW_ELEMENT_DEFINE_PORT_CONTEXT(port,rule,context)
+#define FLOW_ELEMENT_DEFINE_SESSION_DUAL(ruleA,ruleB)
+#define FLOW_ELEMENT_DEFINE_SESSION_CONTEXT(rule,context)
+#define FLOW_ELEMENT_DEFINE_PORT_SESSION_CONTEXT(port,rule,context)
+#endif
+
+CLICK_ENDDECLS
+
+#endif
+
+
+/***  flowiploadbalancer.hh ***/
+
+#ifndef CLICK_FLOWIPLOADBALANCER_HH
+#define CLICK_FLOWIPLOADBALANCER_HH
+#include <click/config.h>
+#include <click/tcphelper.hh>
+#include <click/multithread.hh>
+#include <click/glue.hh>
+#include <click/loadbalancer.hh>
+#include <click/vector.hh>
+
+#include <click/flow/flowelement.hh>
+#include "flowipnat.hh"
+
+#define LB_FLOW_TIMEOUT 60 * 1000
+
+CLICK_DECLS
+
+struct IPLBEntry {
+    int chosen_server;
+    IPLBEntry(int addr) : chosen_server(addr) {
+    }
+
+    inline hashcode_t hashcode() const {
+        return CLICK_NAME(hashcode)(chosen_server);
+    }
+
+    inline bool operator==(IPLBEntry other) const {
+        return (other.chosen_server == chosen_server);
+    }
+};
+
+class FlowIPLoadBalancerReverse;
+
+/**
+=c
+
+FlowIPLoadBalancer([I<KEYWORDS>])
+
+=s flow
+
+TCP & UDP load-balancer, without SNAT
+
+=d
+
+Load-balancer that only rewrites the destination.
+
+Keyword arguments are:
+
+=over 8
+
+=item DST
+
+IP Address. Can be repeated multiple times, once per destination.
+
+=item VIP
+IP Address of this load-balancer.
+
+=back
+
+=e
+    FlowIPLoadBalancer(VIP 10.220.0.1, DST 10.221.0.1, DST 10.221.0.2, DST 10.221.0.3)
+
+=a
+
+FlowIPLoadBalancer, FlowIPNAT */
+
+class FlowIPLoadBalancer : public FlowStateElement<FlowIPLoadBalancer,IPLBEntry>,
+                           public TCPHelper, public LoadBalancer<IPAddress> {
+    public:
+        FlowIPLoadBalancer() CLICK_COLD;
+        ~FlowIPLoadBalancer() CLICK_COLD;
+
+        const char *class_name() const override { return "FlowIPLoadBalancer"; }
+        const char *port_count() const override { return "1/1"; }
+        const char *processing() const override { return PUSH; }
+
+        int configure(Vector<String> &, ErrorHandler *) override CLICK_COLD;
+        int initialize(ErrorHandler *errh) override CLICK_COLD;
+
+        static const int timeout = LB_FLOW_TIMEOUT;
+        bool new_flow(IPLBEntry*, Packet*);
+        void release_flow(IPLBEntry*) {};
+
+        void push_flow(int, IPLBEntry*, PacketBatch *);
+
+#if FLOW_PUSH_BATCH
+        void push_flow_batch(int, IPLBEntry**, PacketBatch *);
+#endif
+
+        void add_handlers() override CLICK_COLD;
+private:
+
+        IPAddress _vip;
+        bool _accept_nonsyn;
+        int _verbose;
+
+	static int handler(int op, String& s, Element* e, const Handler* h, ErrorHandler* errh);
+        static String read_handler(Element *handler, void *user_data);
+        static int write_handler(
+            const String &, Element *, void *, ErrorHandler *
+            ) CLICK_COLD;
+
+	friend class LoadBalancer;
+        friend class FlowIPLoadBalancerReverse;
+};
+
+struct SNull {
+
+};
+
+/**
+=c
+
+FlowIPLoadBalancerReverse(LB)
+
+=s flow
+
+Reverse side for FlowIPLoadBalancerReverse.
+
+=d
+
+Keyword arguments are:
+
+=over 8
+
+=item DST
+
+IP Address. Can be repeated multiple times, once per destination.
+
+=item VIP
+IP Address of this load-balancer.
+
+=back
+
+=e
+    FlowIPLoadBalancer(VIP 10.220.0.1, DST 10.221.0.1, DST 10.221.0.2, DST 10.221.0.3)
+
+=a
+
+FlowIPLoadBalancer, FlowIPNAT */
+
+class FlowIPLoadBalancerReverse : public BatchElement {
+    public:
+        FlowIPLoadBalancerReverse() CLICK_COLD;
+        ~FlowIPLoadBalancerReverse() CLICK_COLD;
+
+        const char *class_name() const override { return "FlowIPLoadBalancerReverse"; }
+        const char *port_count() const override { return "1/1"; }
+        const char *processing() const override { return PUSH; }
+
+        int configure(Vector<String> &, ErrorHandler *) override CLICK_COLD;
+        int initialize(ErrorHandler *errh) override CLICK_COLD;
+
+        void push_batch(int, PacketBatch *) override;
+
+    private:
+        FlowIPLoadBalancer* _lb;
+};
+
+CLICK_ENDDECLS
+#endif
+
+
+/***  FlowIPLoadBalancer_llvm.txt ***/
+
+define dso_local void @_ZN18FlowIPLoadBalancerC2Ev(%class.FlowIPLoadBalancer* %0) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %2 = getelementptr %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0
+  %3 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 1
+  %4 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 2
+  store i8 0, i8* %4, align 4, !tbaa !20277
+  %5 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 0
+  %6 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %5, i64 0, i32 0
+  store %class.Element* null, %class.Element** %6, align 8, !tbaa !20278
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 0, i32 1
+  store i32 -2, i32* %7, align 8, !tbaa !20280
+  %8 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 1, i32 0
+  store %class.Element* null, %class.Element** %8, align 8, !tbaa !20278
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 1, i32 1
+  store i32 -2, i32* %9, align 8, !tbaa !20280
+  %10 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 2, i32 0
+  store %class.Element* null, %class.Element** %10, align 8, !tbaa !20278
+  %11 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 2, i32 1
+  store i32 -2, i32* %11, align 8, !tbaa !20280
+  %12 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 3, i32 0
+  store %class.Element* null, %class.Element** %12, align 8, !tbaa !20278
+  %13 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 3, i32 1
+  store i32 -2, i32* %13, align 8, !tbaa !20280
+  %14 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 7
+  store %class.Router* null, %class.Router** %14, align 8, !tbaa !20281
+  %15 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 8
+  store i32 -1, i32* %15, align 8, !tbaa !20282
+  %16 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 10
+  %17 = bitcast %class.Vector* %16 to i8*
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(17) %17, i8 0, i64 17, i1 false) #34
+  %18 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %19 = add nsw i32 %18, 1
+  store i32 %19, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %20 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 1
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %21 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 0
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %22 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6, i64 1
+  store i32 0, i32* %22, align 4, !tbaa !20283
+  %23 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6, i64 0
+  store i32 0, i32* %23, align 8, !tbaa !20283
+  %24 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 1
+  store i32 -1, i32* %24, align 4, !tbaa !22530
+  store i32 2, i32* %3, align 8, !tbaa !20267
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [45 x i8*] }, { [45 x i8*] }* @_ZTV16FlowStateElementI18FlowIPLoadBalancer9IPLBEntry14DefaultCheckerE, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %25 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %26 = bitcast %class.LoadBalancer.base.6199* %25 to %class.LoadBalancer.6201*
+  invoke fastcc void @_ZN12LoadBalancerI9IPAddressEC2Ev(%class.LoadBalancer.6201* nonnull %26)
+          to label %27 unwind label %31
+
+27:                                               ; preds = %1
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [45 x i8*] }, { [45 x i8*] }* @_ZTV18FlowIPLoadBalancer, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %28 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 2, i32 0
+  store i32 0, i32* %28, align 4, !tbaa !21122
+  %29 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 3
+  store i8 1, i8* %29, align 4, !tbaa !22541
+  %30 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  store i32 0, i32* %30, align 8, !tbaa !22543
+  ret void
+
+31:                                               ; preds = %1
+  %32 = landingpad { i8*, i32 }
+          cleanup
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %33 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %34 = add nsw i32 %33, -1
+  store i32 %34, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %35 = load %"class.Element::Port"*, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %36 = icmp uge %"class.Element::Port"* %35, %5
+  %37 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6
+  %38 = bitcast [2 x i32]* %37 to %"class.Element::Port"*
+  %39 = icmp ule %"class.Element::Port"* %35, %38
+  %40 = and i1 %39, %36
+  %41 = icmp eq %"class.Element::Port"* %35, null
+  %42 = or i1 %41, %40
+  br i1 %42, label %45, label %43
+
+43:                                               ; preds = %31
+  %44 = bitcast %"class.Element::Port"* %35 to i8*
+  tail call void @_ZdaPv(i8* %44) #55
+  br label %45
+
+45:                                               ; preds = %43, %31
+  %46 = load %"class.Element::Port"*, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %47 = icmp uge %"class.Element::Port"* %46, %5
+  %48 = icmp ule %"class.Element::Port"* %46, %38
+  %49 = and i1 %48, %47
+  %50 = icmp eq %"class.Element::Port"* %46, null
+  %51 = or i1 %50, %49
+  br i1 %51, label %54, label %52
+
+52:                                               ; preds = %45
+  %53 = bitcast %"class.Element::Port"* %46 to i8*
+  tail call void @_ZdaPv(i8* %53) #55
+  br label %54
+
+54:                                               ; preds = %52, %45
+  %55 = bitcast %class.Vector* %16 to i8**
+  %56 = load i8*, i8** %55, align 8, !tbaa !20288
+  %57 = icmp eq i8* %56, null
+  br i1 %57, label %_ZN11FlowElementD2Ev.exit, label %58
+
+58:                                               ; preds = %54
+  tail call void @_ZdaPv(i8* nonnull %56) #55
+  br label %_ZN11FlowElementD2Ev.exit
+
+_ZN11FlowElementD2Ev.exit:                        ; preds = %58, %54
+  resume { i8*, i32 } %32
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancerD2Ev(%class.FlowIPLoadBalancer* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %3 = bitcast %class.LoadBalancer.base.6199* %2 to %class.LoadBalancer.6201*
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressED2Ev(%class.LoadBalancer.6201* nonnull %3) #34
+  %4 = getelementptr %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %4, align 8, !tbaa !20285
+  %5 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %6 = add nsw i32 %5, -1
+  store i32 %6, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 0
+  %8 = load %"class.Element::Port"*, %"class.Element::Port"** %7, align 8, !tbaa !20284
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 0
+  %10 = icmp uge %"class.Element::Port"* %8, %9
+  %11 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6
+  %12 = bitcast [2 x i32]* %11 to %"class.Element::Port"*
+  %13 = icmp ule %"class.Element::Port"* %8, %12
+  %14 = and i1 %13, %10
+  %15 = icmp eq %"class.Element::Port"* %8, null
+  %16 = or i1 %15, %14
+  br i1 %16, label %19, label %17
+
+17:                                               ; preds = %1
+  %18 = bitcast %"class.Element::Port"* %8 to i8*
+  tail call void @_ZdaPv(i8* %18) #55
+  br label %19
+
+19:                                               ; preds = %17, %1
+  %20 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 1
+  %21 = load %"class.Element::Port"*, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %22 = icmp uge %"class.Element::Port"* %21, %9
+  %23 = icmp ule %"class.Element::Port"* %21, %12
+  %24 = and i1 %23, %22
+  %25 = icmp eq %"class.Element::Port"* %21, null
+  %26 = or i1 %25, %24
+  br i1 %26, label %29, label %27
+
+27:                                               ; preds = %19
+  %28 = bitcast %"class.Element::Port"* %21 to i8*
+  tail call void @_ZdaPv(i8* %28) #55
+  br label %29
+
+29:                                               ; preds = %27, %19
+  %30 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 10
+  %31 = bitcast %class.Vector* %30 to i8**
+  %32 = load i8*, i8** %31, align 8, !tbaa !20288
+  %33 = icmp eq i8* %32, null
+  br i1 %33, label %_ZN11FlowElementD2Ev.exit, label %34
+
+34:                                               ; preds = %29
+  tail call void @_ZdaPv(i8* nonnull %32) #55
+  br label %_ZN11FlowElementD2Ev.exit
+
+_ZN11FlowElementD2Ev.exit:                        ; preds = %34, %29
+  ret void
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancerD0Ev(%class.FlowIPLoadBalancer* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %3 = bitcast %class.LoadBalancer.base.6199* %2 to %class.LoadBalancer.6201*
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressED2Ev(%class.LoadBalancer.6201* nonnull %3) #34
+  %4 = getelementptr %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %4, align 8, !tbaa !20285
+  %5 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %6 = add nsw i32 %5, -1
+  store i32 %6, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 0
+  %8 = load %"class.Element::Port"*, %"class.Element::Port"** %7, align 8, !tbaa !20284
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 5, i64 0
+  %10 = icmp uge %"class.Element::Port"* %8, %9
+  %11 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6
+  %12 = bitcast [2 x i32]* %11 to %"class.Element::Port"*
+  %13 = icmp ule %"class.Element::Port"* %8, %12
+  %14 = and i1 %13, %10
+  %15 = icmp eq %"class.Element::Port"* %8, null
+  %16 = or i1 %15, %14
+  br i1 %16, label %19, label %17
+
+17:                                               ; preds = %1
+  %18 = bitcast %"class.Element::Port"* %8 to i8*
+  tail call void @_ZdaPv(i8* %18) #55
+  br label %19
+
+19:                                               ; preds = %17, %1
+  %20 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 1
+  %21 = load %"class.Element::Port"*, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %22 = icmp uge %"class.Element::Port"* %21, %9
+  %23 = icmp ule %"class.Element::Port"* %21, %12
+  %24 = and i1 %23, %22
+  %25 = icmp eq %"class.Element::Port"* %21, null
+  %26 = or i1 %25, %24
+  br i1 %26, label %29, label %27
+
+27:                                               ; preds = %19
+  %28 = bitcast %"class.Element::Port"* %21 to i8*
+  tail call void @_ZdaPv(i8* %28) #55
+  br label %29
+
+29:                                               ; preds = %27, %19
+  %30 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 10
+  %31 = bitcast %class.Vector* %30 to i8**
+  %32 = load i8*, i8** %31, align 8, !tbaa !20288
+  %33 = icmp eq i8* %32, null
+  br i1 %33, label %_ZN11FlowElementD2Ev.exit, label %34
+
+34:                                               ; preds = %29
+  tail call void @_ZdaPv(i8* nonnull %32) #55
+  br label %_ZN11FlowElementD2Ev.exit
+
+_ZN11FlowElementD2Ev.exit:                        ; preds = %34, %29
+  ret void
+}
+
+define internal void @_ZN16FlowStateElementI18FlowIPLoadBalancer9IPLBEntry14DefaultCheckerE10push_batchEiP11PacketBatch(%class.FlowStateElement* %0, i32 %1, %class.PacketBatch* %2) unnamed_addr #0 comdat align 2 {
+  %4 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 48, i32 0
+  %5 = getelementptr inbounds i8, i8* %4, i64 24
+  %6 = bitcast i8* %5 to i16*
+  %7 = load i16, i16* %6, align 2, !tbaa !20287
+  %8 = icmp eq i16 %7, 0
+  br i1 %8, label %9, label %10
+
+9:                                                ; preds = %3
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+10:                                               ; preds = %3
+  %11 = zext i16 %7 to i64
+  %12 = shl nuw nsw i64 %11, 3
+  %13 = tail call i8* @_Znam(i64 %12) #56
+  %14 = bitcast i8* %13 to %class.atomic_uint32_t**
+  %15 = bitcast %class.PacketBatch* %2 to %class.Packet*
+  %16 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 136
+  %17 = bitcast %class.PacketBatch* %16 to %class.Packet**
+  %18 = getelementptr inbounds %class.FlowStateElement, %class.FlowStateElement* %0, i64 0, i32 0, i32 1
+  %19 = bitcast %class.FlowStateElement* %0 to %class.FlowIPLoadBalancer*
+  %20 = getelementptr inbounds %class.FlowStateElement, %class.FlowStateElement* %0, i64 3, i32 0, i32 0, i32 0, i32 0, i32 1
+  %21 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %19, i64 0, i32 3
+  %22 = getelementptr inbounds %class.FlowStateElement, %class.FlowStateElement* %0, i64 1
+  %23 = bitcast %class.FlowStateElement* %22 to %class.LoadBalancer.6201*
+  br label %24
+
+24:                                               ; preds = %79, %10
+  %25 = phi i64 [ 0, %10 ], [ %80, %79 ]
+  %26 = phi %class.Packet** [ %17, %10 ], [ %81, %79 ]
+  %27 = phi %class.Packet* [ %15, %10 ], [ %28, %79 ]
+  %28 = load %class.Packet*, %class.Packet** %26, align 8, !tbaa !20284
+  %29 = getelementptr inbounds %class.Packet, %class.Packet* %27, i64 0, i32 6, i32 0, i32 0, i64 4
+  %30 = bitcast i64* %29 to i32*
+  %31 = load i32, i32* %30, align 4, !tbaa !20287
+  %32 = load %class.FlowControlBlock**, %class.FlowControlBlock*** @fcb_queue, align 8, !tbaa !20284
+  %33 = and i32 %31, 255
+  %34 = zext i32 %33 to i64
+  %35 = getelementptr inbounds %class.FlowControlBlock*, %class.FlowControlBlock** %32, i64 %34
+  %36 = load %class.FlowControlBlock*, %class.FlowControlBlock** %35, align 8, !tbaa !20284
+  %37 = getelementptr inbounds %class.FlowControlBlock, %class.FlowControlBlock* %36, i64 0, i32 5
+  %38 = bitcast %union.anon.28.5842* %37 to [0 x i8]*
+  %39 = load i32, i32* %18, align 4, !tbaa !22530
+  %40 = sext i32 %39 to i64
+  %41 = getelementptr inbounds [0 x i8], [0 x i8]* %38, i64 0, i64 %40
+  %42 = getelementptr inbounds i8, i8* %41, i64 4
+  %43 = load i8, i8* %42, align 1, !tbaa !22532, !range !20292
+  %44 = icmp eq i8 %43, 0
+  br i1 %44, label %45, label %75
+
+45:                                               ; preds = %24
+  %46 = getelementptr inbounds %class.Packet, %class.Packet* %27, i64 0, i32 6, i32 2
+  %47 = bitcast i8** %46 to %struct.click_ip**
+  %48 = load %struct.click_ip*, %struct.click_ip** %47, align 8, !tbaa !20400
+  %49 = getelementptr inbounds %struct.click_ip, %struct.click_ip* %48, i64 0, i32 6
+  %50 = load i8, i8* %49, align 1, !tbaa !20654
+  %51 = icmp eq i8 %50, 6
+  br i1 %51, label %52, label %67
+
+52:                                               ; preds = %45
+  %53 = getelementptr inbounds %class.Packet, %class.Packet* %27, i64 0, i32 6, i32 3
+  %54 = bitcast i8** %53 to %struct.click_tcp**
+  %55 = load %struct.click_tcp*, %struct.click_tcp** %54, align 8, !tbaa !20562
+  %56 = getelementptr inbounds %struct.click_tcp, %struct.click_tcp* %55, i64 0, i32 5
+  %57 = load i8, i8* %56, align 1, !tbaa !20721
+  %58 = and i8 %57, 2
+  %59 = icmp eq i8 %58, 0
+  br i1 %59, label %60, label %67
+
+60:                                               ; preds = %52
+  %61 = load i32, i32* %20, align 8, !tbaa !22543
+  %62 = icmp eq i32 %61, 0
+  br i1 %62, label %64, label %63, !prof !20376, !misexpect !20323
+
+63:                                               ; preds = %60
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([23 x i8], [23 x i8]* @.str.5.2802, i64 0, i64 0))
+  br label %64
+
+64:                                               ; preds = %63, %60
+  %65 = load i8, i8* %21, align 4, !tbaa !22541, !range !20292
+  %66 = icmp eq i8 %65, 0
+  br i1 %66, label %74, label %67, !prof !22570
+
+67:                                               ; preds = %64, %52, %45
+  %68 = tail call fastcc i32 @_ZN12LoadBalancerI9IPAddressE11pick_serverEPK6Packet(%class.LoadBalancer.6201* nonnull %23, %class.Packet* nonnull %27)
+  %69 = bitcast i8* %41 to i32*
+  store i32 %68, i32* %69, align 4, !tbaa !22571
+  %70 = load i32, i32* %20, align 8, !tbaa !22543
+  %71 = icmp eq i32 %70, 0
+  br i1 %71, label %73, label %72, !prof !20376, !misexpect !20323
+
+72:                                               ; preds = %67
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.24.5795, i64 0, i64 0), i32 %68)
+  br label %73
+
+73:                                               ; preds = %72, %67
+  store i8 1, i8* %42, align 1, !tbaa !22532
+  br label %75
+
+74:                                               ; preds = %64
+  tail call void @_ZN11PacketBatch9fast_killEv(%class.PacketBatch* nonnull %2)
+  br label %98
+
+75:                                               ; preds = %73, %24
+  %76 = getelementptr inbounds %class.atomic_uint32_t*, %class.atomic_uint32_t** %14, i64 %25
+  %77 = bitcast %class.atomic_uint32_t** %76 to i8**
+  store i8* %41, i8** %77, align 8, !tbaa !20284
+  %78 = icmp eq %class.Packet* %28, null
+  br i1 %78, label %82, label %79
+
+79:                                               ; preds = %75
+  %80 = add nuw i64 %25, 1
+  %81 = getelementptr inbounds %class.Packet, %class.Packet* %28, i64 0, i32 6, i32 6
+  br label %24
+
+82:                                               ; preds = %75
+  tail call void @_ZN18FlowIPLoadBalancer15push_flow_batchEiPP9IPLBEntryP11PacketBatch(%class.FlowIPLoadBalancer* nonnull %19, i32 undef, %class.atomic_uint32_t** nonnull %14, %class.PacketBatch* %2)
+  %83 = getelementptr inbounds %class.FlowStateElement, %class.FlowStateElement* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 6, i64 1
+  %84 = load i32, i32* %83, align 4, !tbaa !20283
+  %85 = icmp eq i32 %84, 0
+  br i1 %85, label %86, label %87
+
+86:                                               ; preds = %82
+  tail call void @__assert_fail(i8* getelementptr inbounds ([47 x i8], [47 x i8]* @.str.56.14329, i64 0, i64 0), i8* getelementptr inbounds ([28 x i8], [28 x i8]* @.str.96.15137, i64 0, i64 0), i32 568, i8* getelementptr inbounds ([52 x i8], [52 x i8]* @__PRETTY_FUNCTION__._ZNK7Element4portEbi.14331, i64 0, i64 0)) #57
+  unreachable
+
+87:                                               ; preds = %82
+  %88 = getelementptr inbounds %class.FlowStateElement, %class.FlowStateElement* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 1
+  %89 = load %"class.Element::Port"*, %"class.Element::Port"** %88, align 8, !tbaa !20284
+  %90 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %89, i64 0, i32 0
+  %91 = load %class.Element*, %class.Element** %90, align 8, !tbaa !20278
+  %92 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %89, i64 0, i32 1
+  %93 = load i32, i32* %92, align 8, !tbaa !20280
+  %94 = bitcast %class.Element* %91 to void (%class.Element*, i32, %class.PacketBatch*)***
+  %95 = load void (%class.Element*, i32, %class.PacketBatch*)**, void (%class.Element*, i32, %class.PacketBatch*)*** %94, align 8, !tbaa !20285
+  %96 = getelementptr inbounds void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %95, i64 5
+  %97 = load void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %96, align 8
+  tail call void %97(%class.Element* %91, i32 %93, %class.PacketBatch* %2)
+  br label %98
+
+98:                                               ; preds = %87, %74
+  ret void
+}
+
+define internal i8* @_ZNK18FlowIPLoadBalancer10class_nameEv(%class.FlowIPLoadBalancer* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([19 x i8], [19 x i8]* @.str.88.13092, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK18FlowIPLoadBalancer10port_countEv(%class.FlowIPLoadBalancer* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.6.11182, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK18FlowIPLoadBalancer10processingEv(%class.FlowIPLoadBalancer* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([2 x i8], [2 x i8]* @_ZN7Element4PUSHE, i64 0, i64 0)
+}
+
+define dso_local i32 @_ZN18FlowIPLoadBalancer9configureER6VectorI6StringLm16EEP12ErrorHandler(%class.FlowIPLoadBalancer* %0, %class.Vector.0* dereferenceable(16) %1, %class.ErrorHandler* %2) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %4 = alloca %class.Args, align 8
+  %5 = alloca %class.Args, align 8
+  %6 = bitcast %class.Args* %4 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 112, i8* nonnull %6) #34
+  %7 = bitcast %class.FlowIPLoadBalancer* %0 to %class.Element*
+  %8 = bitcast %class.Args* %4 to %class.FlowIPLoadBalancer**
+  store %class.FlowIPLoadBalancer* %0, %class.FlowIPLoadBalancer** %8, align 8, !tbaa !20294
+  %9 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 1
+  store %class.ErrorHandler* %2, %class.ErrorHandler** %9, align 8, !tbaa !20296
+  %10 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 2
+  store i8* null, i8** %10, align 8, !tbaa !20297
+  %11 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 0, i32 3
+  store i8 0, i8* %11, align 8, !tbaa !20298
+  %12 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 4
+  %13 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 1
+  store i8 0, i8* %13, align 1, !tbaa !22020
+  %14 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 2
+  %15 = bitcast %class.Vector.0** %12 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(33) %15, i8 0, i64 33, i1 false) #34
+  store i8 1, i8* %14, align 2, !tbaa !20301
+  %16 = getelementptr inbounds %class.Args, %class.Args* %4, i64 0, i32 3
+  store i8 0, i8* %16, align 1, !tbaa !20305
+  %17 = invoke dereferenceable(112) %class.Args* @_ZN4Args4bindER6VectorI6StringLm16EE(%class.Args* nonnull %4, %class.Vector.0* nonnull dereferenceable(16) %1)
+          to label %18 unwind label %.loopexit.split-lp9
+
+18:                                               ; preds = %3
+  %19 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %20 = bitcast %class.LoadBalancer.base.6199* %19 to %class.LoadBalancer.6201*
+  %21 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3
+  invoke fastcc void @_Z18args_base_read_allI10DefaultArgI6VectorI9IPAddressLm16EEES2_EvP4ArgsPKciT_RS1_IT0_Lm16EE(%class.Args* nonnull %17, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.1.12088, i64 0, i64 0), %class.Vector.2* nonnull dereferenceable(16) %21)
+          to label %22 unwind label %.loopexit.split-lp9
+
+22:                                               ; preds = %18
+  %23 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 2
+  %24 = bitcast %class.Args* %17 to %class.Args.3880*
+  invoke fastcc void @_Z14args_base_readI9IPAddressEvP4ArgsPKciRT_(%class.Args.3880* nonnull %24, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.1.8404, i64 0, i64 0), i32 3, %class.atomic_uint32_t* nonnull dereferenceable(4) %23)
+          to label %25 unwind label %.loopexit.split-lp9
+
+25:                                               ; preds = %22
+  %26 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  invoke fastcc void @_Z14args_base_readIiEvP4ArgsPKciRT_(%class.Args* nonnull %17, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str.12950, i64 0, i64 0), i32 0, i32* nonnull dereferenceable(4) %26)
+          to label %27 unwind label %.loopexit.split-lp9
+
+27:                                               ; preds = %25
+  %28 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 3
+  invoke void @_Z14args_base_readIbEvP4ArgsPKciRT_(%class.Args* nonnull %17, i8* getelementptr inbounds ([7 x i8], [7 x i8]* @.str.3.2782, i64 0, i64 0), i32 0, i8* nonnull dereferenceable(1) %28)
+          to label %29 unwind label %.loopexit.split-lp9
+
+29:                                               ; preds = %27
+  %30 = invoke dereferenceable(112) %class.Args* @_ZN4Args5stripEv(%class.Args* nonnull %17)
+          to label %.noexc unwind label %.loopexit.split-lp9
+
+.noexc:                                           ; preds = %29
+  %31 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 2
+  %32 = load i8, i8* %31, align 2, !tbaa !20301, !range !20292
+  %33 = icmp eq i8 %32, 0
+  br i1 %33, label %_ZN4Args7consumeEv.exit, label %34
+
+34:                                               ; preds = %.noexc
+  %35 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 6
+  %36 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %35, align 8, !tbaa !20304
+  %37 = icmp eq %"struct.Args::Slot"* %36, null
+  br i1 %37, label %.loopexit13, label %38
+
+38:                                               ; preds = %34
+  %39 = bitcast %"struct.Args::Slot"** %35 to i64*
+  br label %43
+
+.loopexit13:                                      ; preds = %.noexc1, %34
+  %40 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 3
+  %41 = load i8, i8* %40, align 1, !tbaa !20305
+  %42 = icmp eq i8 %41, 0
+  br i1 %42, label %.loopexit7, label %.preheader6
+
+43:                                               ; preds = %.noexc1, %38
+  %44 = phi %"struct.Args::Slot"* [ %36, %38 ], [ %55, %.noexc1 ]
+  %45 = getelementptr inbounds %"struct.Args::Slot", %"struct.Args::Slot"* %44, i64 0, i32 1
+  %46 = bitcast %"struct.Args::Slot"** %45 to i64*
+  %47 = load i64, i64* %46, align 8, !tbaa !20306
+  store i64 %47, i64* %39, align 8, !tbaa !20304
+  %48 = bitcast %"struct.Args::Slot"* %44 to void (%"struct.Args::Slot"*)***
+  %49 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %48, align 8, !tbaa !20285
+  %50 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %49, i64 2
+  %51 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %50, align 8
+  invoke void %51(%"struct.Args::Slot"* nonnull %44)
+          to label %.noexc1 unwind label %.loopexit8
+
+.noexc1:                                          ; preds = %43
+  %52 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %48, align 8, !tbaa !20285
+  %53 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %52, i64 1
+  %54 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %53, align 8
+  call void %54(%"struct.Args::Slot"* nonnull %44) #34
+  %55 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %35, align 8, !tbaa !20304
+  %56 = icmp eq %"struct.Args::Slot"* %55, null
+  br i1 %56, label %.loopexit13, label %43
+
+.loopexit7:                                       ; preds = %.preheader6, %.loopexit13
+  %57 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 7, i64 0
+  store i8 0, i8* %57, align 8, !tbaa !20287
+  store i8 0, i8* %40, align 1, !tbaa !20305
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %4) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %6) #34
+  %58 = call fastcc i32 @_ZN12LoadBalancerI9IPAddressE7parseLbER6VectorI6StringLm16EEP7ElementP12ErrorHandler(%class.LoadBalancer.6201* nonnull %20, %class.Vector.0* nonnull dereferenceable(16) %1, %class.Element* %7, %class.ErrorHandler* %2)
+  %59 = icmp slt i32 %58, 0
+  br i1 %59, label %150, label %84
+
+.preheader6:                                      ; preds = %.preheader6, %.loopexit13
+  %60 = phi i32 [ %77, %.preheader6 ], [ 0, %.loopexit13 ]
+  %61 = zext i32 %60 to i64
+  %62 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 7, i64 %61
+  %63 = load i8, i8* %62, align 1, !tbaa !20287
+  %64 = zext i8 %63 to i32
+  %65 = add nuw nsw i32 %60, 1
+  %66 = zext i32 %65 to i64
+  %67 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 7, i64 %66
+  %68 = add nuw nsw i32 %65, %64
+  %69 = zext i32 %68 to i64
+  %70 = getelementptr inbounds %class.Args, %class.Args* %17, i64 0, i32 7, i64 %69
+  %71 = bitcast i8* %70 to i8**
+  %72 = load i8*, i8** %71, align 8, !tbaa !20284
+  %73 = zext i8 %63 to i64
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %72, i8* nonnull align 1 %67, i64 %73, i1 false)
+  %74 = load i8, i8* %62, align 1, !tbaa !20287
+  %75 = zext i8 %74 to i32
+  %76 = add i32 %60, 9
+  %77 = add i32 %76, %75
+  %78 = load i8, i8* %40, align 1, !tbaa !20305
+  %79 = zext i8 %78 to i32
+  %80 = icmp ult i32 %77, %79
+  br i1 %80, label %.preheader6, label %.loopexit7
+
+_ZN4Args7consumeEv.exit:                          ; preds = %.noexc
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %4) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %6) #34
+  br label %150
+
+.loopexit8:                                       ; preds = %43
+  %lpad.loopexit10 = landingpad { i8*, i32 }
+          cleanup
+  br label %81
+
+.loopexit.split-lp9:                              ; preds = %29, %27, %25, %22, %18, %3
+  %lpad.loopexit.split-lp11 = landingpad { i8*, i32 }
+          cleanup
+  br label %81
+
+81:                                               ; preds = %.loopexit.split-lp9, %.loopexit8
+  %lpad.phi12 = phi { i8*, i32 } [ %lpad.loopexit10, %.loopexit8 ], [ %lpad.loopexit.split-lp11, %.loopexit.split-lp9 ]
+  %82 = extractvalue { i8*, i32 } %lpad.phi12, 0
+  %83 = extractvalue { i8*, i32 } %lpad.phi12, 1
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %4) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %6) #34
+  br label %152
+
+84:                                               ; preds = %.loopexit7
+  %85 = bitcast %class.Args* %5 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 112, i8* nonnull %85) #34
+  %86 = bitcast %class.Args* %5 to %class.FlowIPLoadBalancer**
+  store %class.FlowIPLoadBalancer* %0, %class.FlowIPLoadBalancer** %86, align 8, !tbaa !20294
+  %87 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 0, i32 1
+  store %class.ErrorHandler* %2, %class.ErrorHandler** %87, align 8, !tbaa !20296
+  %88 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 0, i32 2
+  store i8* null, i8** %88, align 8, !tbaa !20297
+  %89 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 0, i32 3
+  store i8 0, i8* %89, align 8, !tbaa !20298
+  %90 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 4
+  %91 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 1
+  store i8 0, i8* %91, align 1, !tbaa !22020
+  %92 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 2
+  %93 = bitcast %class.Vector.0** %90 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(33) %93, i8 0, i64 33, i1 false) #34
+  store i8 1, i8* %92, align 2, !tbaa !20301
+  %94 = getelementptr inbounds %class.Args, %class.Args* %5, i64 0, i32 3
+  store i8 0, i8* %94, align 1, !tbaa !20305
+  %95 = invoke dereferenceable(112) %class.Args* @_ZN4Args4bindER6VectorI6StringLm16EE(%class.Args* nonnull %5, %class.Vector.0* nonnull dereferenceable(16) %1)
+          to label %96 unwind label %.loopexit.split-lp
+
+96:                                               ; preds = %84
+  invoke void @_ZN4Args14check_completeEv(%class.Args* nonnull %95)
+          to label %.noexc2 unwind label %.loopexit.split-lp
+
+.noexc2:                                          ; preds = %96
+  %97 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 2
+  %98 = load i8, i8* %97, align 2, !tbaa !20301, !range !20292
+  %99 = icmp eq i8 %98, 0
+  br i1 %99, label %_ZN4Args8completeEv.exit, label %100
+
+100:                                              ; preds = %.noexc2
+  %101 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 6
+  %102 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %101, align 8, !tbaa !20304
+  %103 = icmp eq %"struct.Args::Slot"* %102, null
+  br i1 %103, label %.loopexit5, label %104
+
+104:                                              ; preds = %100
+  %105 = bitcast %"struct.Args::Slot"** %101 to i64*
+  br label %109
+
+.loopexit5:                                       ; preds = %.noexc3, %100
+  %106 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 3
+  %107 = load i8, i8* %106, align 1, !tbaa !20305
+  %108 = icmp eq i8 %107, 0
+  br i1 %108, label %.loopexit, label %.preheader
+
+109:                                              ; preds = %.noexc3, %104
+  %110 = phi %"struct.Args::Slot"* [ %102, %104 ], [ %121, %.noexc3 ]
+  %111 = getelementptr inbounds %"struct.Args::Slot", %"struct.Args::Slot"* %110, i64 0, i32 1
+  %112 = bitcast %"struct.Args::Slot"** %111 to i64*
+  %113 = load i64, i64* %112, align 8, !tbaa !20306
+  store i64 %113, i64* %105, align 8, !tbaa !20304
+  %114 = bitcast %"struct.Args::Slot"* %110 to void (%"struct.Args::Slot"*)***
+  %115 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %114, align 8, !tbaa !20285
+  %116 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %115, i64 2
+  %117 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %116, align 8
+  invoke void %117(%"struct.Args::Slot"* nonnull %110)
+          to label %.noexc3 unwind label %.loopexit4
+
+.noexc3:                                          ; preds = %109
+  %118 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %114, align 8, !tbaa !20285
+  %119 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %118, i64 1
+  %120 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %119, align 8
+  call void %120(%"struct.Args::Slot"* nonnull %110) #34
+  %121 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %101, align 8, !tbaa !20304
+  %122 = icmp eq %"struct.Args::Slot"* %121, null
+  br i1 %122, label %.loopexit5, label %109
+
+.loopexit:                                        ; preds = %.preheader, %.loopexit5
+  %123 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 7, i64 0
+  store i8 0, i8* %123, align 8, !tbaa !20287
+  store i8 0, i8* %106, align 1, !tbaa !20305
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %5) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %85) #34
+  %124 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3, i32 0, i32 1
+  %125 = load i32, i32* %124, align 8, !tbaa !22573
+  call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([26 x i8], [26 x i8]* @.str.2.8405, i64 0, i64 0), %class.FlowIPLoadBalancer* %0, i32 %125)
+  br label %150
+
+.preheader:                                       ; preds = %.preheader, %.loopexit5
+  %126 = phi i32 [ %143, %.preheader ], [ 0, %.loopexit5 ]
+  %127 = zext i32 %126 to i64
+  %128 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 7, i64 %127
+  %129 = load i8, i8* %128, align 1, !tbaa !20287
+  %130 = zext i8 %129 to i32
+  %131 = add nuw nsw i32 %126, 1
+  %132 = zext i32 %131 to i64
+  %133 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 7, i64 %132
+  %134 = add nuw nsw i32 %131, %130
+  %135 = zext i32 %134 to i64
+  %136 = getelementptr inbounds %class.Args, %class.Args* %95, i64 0, i32 7, i64 %135
+  %137 = bitcast i8* %136 to i8**
+  %138 = load i8*, i8** %137, align 8, !tbaa !20284
+  %139 = zext i8 %129 to i64
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %138, i8* nonnull align 1 %133, i64 %139, i1 false)
+  %140 = load i8, i8* %128, align 1, !tbaa !20287
+  %141 = zext i8 %140 to i32
+  %142 = add i32 %126, 9
+  %143 = add i32 %142, %141
+  %144 = load i8, i8* %106, align 1, !tbaa !20305
+  %145 = zext i8 %144 to i32
+  %146 = icmp ult i32 %143, %145
+  br i1 %146, label %.preheader, label %.loopexit
+
+_ZN4Args8completeEv.exit:                         ; preds = %.noexc2
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %5) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %85) #34
+  br label %150
+
+.loopexit4:                                       ; preds = %109
+  %lpad.loopexit = landingpad { i8*, i32 }
+          cleanup
+  br label %147
+
+.loopexit.split-lp:                               ; preds = %96, %84
+  %lpad.loopexit.split-lp = landingpad { i8*, i32 }
+          cleanup
+  br label %147
+
+147:                                              ; preds = %.loopexit.split-lp, %.loopexit4
+  %lpad.phi = phi { i8*, i32 } [ %lpad.loopexit, %.loopexit4 ], [ %lpad.loopexit.split-lp, %.loopexit.split-lp ]
+  %148 = extractvalue { i8*, i32 } %lpad.phi, 0
+  %149 = extractvalue { i8*, i32 } %lpad.phi, 1
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %5) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %85) #34
+  br label %152
+
+150:                                              ; preds = %_ZN4Args8completeEv.exit, %.loopexit, %_ZN4Args7consumeEv.exit, %.loopexit7
+  %151 = phi i32 [ 0, %.loopexit ], [ -1, %_ZN4Args7consumeEv.exit ], [ -1, %.loopexit7 ], [ -1, %_ZN4Args8completeEv.exit ]
+  ret i32 %151
+
+152:                                              ; preds = %147, %81
+  %153 = phi i8* [ %148, %147 ], [ %82, %81 ]
+  %154 = phi i32 [ %149, %147 ], [ %83, %81 ]
+  %155 = insertvalue { i8*, i32 } undef, i8* %153, 0
+  %156 = insertvalue { i8*, i32 } %155, i32 %154, 1
+  resume { i8*, i32 } %156
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancer12add_handlersEv(%class.FlowIPLoadBalancer* readonly %0) unnamed_addr #0 align 2 {
+  %2 = bitcast %class.FlowIPLoadBalancer* %0 to %class.Element*
+  tail call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %2, i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str.87.15367, i64 0, i64 0), i32 7, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZN18FlowIPLoadBalancer7handlerEiR6StringP7ElementPK7HandlerP12ErrorHandler, i32 0, i32 0)
+  tail call void @_ZN7Element11set_handlerEPKciPFiiR6StringPS_PK7HandlerP12ErrorHandlerEii(%class.Element* %2, i8* getelementptr inbounds ([9 x i8], [9 x i8]* @.str.65.8395, i64 0, i64 0), i32 2, i32 (i32, %class.String*, %class.Element*, %class.Handler*, %class.ErrorHandler*)* nonnull @_ZN18FlowIPLoadBalancer7handlerEiR6StringP7ElementPK7HandlerP12ErrorHandler, i32 1, i32 1)
+  tail call void @_ZN7Element16add_read_handlerEPKcPF6StringPS_PvEij(%class.Element* %2, i8* getelementptr inbounds ([18 x i8], [18 x i8]* @.str.66.8396, i64 0, i64 0), void (%class.String*, %class.Element*, i8*)* nonnull @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv, i32 3, i32 0)
+  tail call void @_ZN7Element16add_read_handlerEPKcPF6StringPS_PvEij(%class.Element* %2, i8* getelementptr inbounds ([17 x i8], [17 x i8]* @.str.67.8397, i64 0, i64 0), void (%class.String*, %class.Element*, i8*)* nonnull @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv, i32 2, i32 0)
+  tail call void @_ZN7Element16add_read_handlerEPKcPF6StringPS_PvEij(%class.Element* %2, i8* getelementptr inbounds ([10 x i8], [10 x i8]* @.str.68.8398, i64 0, i64 0), void (%class.String*, %class.Element*, i8*)* nonnull @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv, i32 4, i32 0)
+  tail call void @_ZN7Element16add_read_handlerEPKcPF6StringPS_PvEij(%class.Element* %2, i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str.69.8399, i64 0, i64 0), void (%class.String*, %class.Element*, i8*)* nonnull @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv, i32 6, i32 0)
+  tail call void @_ZN7Element16add_read_handlerEPKcPF6StringPS_PvEij(%class.Element* %2, i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str.70.8400, i64 0, i64 0), void (%class.String*, %class.Element*, i8*)* nonnull @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv, i32 5, i32 0)
+  tail call void @_ZN7Element17add_write_handlerEPKcPFiRK6StringPS_PvP12ErrorHandlerEij(%class.Element* %2, i8* getelementptr inbounds ([14 x i8], [14 x i8]* @.str.71.8401, i64 0, i64 0), i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN18FlowIPLoadBalancer13write_handlerERK6StringP7ElementPvP12ErrorHandler, i32 8, i32 0)
+  tail call void @_ZN7Element17add_write_handlerEPKcPFiRK6StringPS_PvP12ErrorHandlerEij(%class.Element* %2, i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str.72.8402, i64 0, i64 0), i32 (%class.String*, %class.Element*, i8*, %class.ErrorHandler*)* nonnull @_ZN18FlowIPLoadBalancer13write_handlerERK6StringP7ElementPvP12ErrorHandler, i32 7, i32 0)
+  ret void
+}
+
+define dso_local i32 @_ZN18FlowIPLoadBalancer10initializeEP12ErrorHandler(%class.FlowIPLoadBalancer* nocapture readnone %0, %class.ErrorHandler* nocapture readnone %1) unnamed_addr #4 align 2 {
+  ret i32 0
+}
+
+define internal i64 @_ZNK16FlowStateElementI18FlowIPLoadBalancer9IPLBEntry14DefaultCheckerE14flow_data_sizeEv(%class.FlowStateElement* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i64 8
+}
+
+define internal i32 @_ZNK16FlowStateElementI18FlowIPLoadBalancer9IPLBEntry14DefaultCheckerE21flow_announce_managerEP7ElementP12ErrorHandler(%class.FlowStateElement* %0, %class.Element* %1, %class.ErrorHandler* %2) unnamed_addr #0 comdat align 2 {
+  %4 = bitcast %class.Element* %1 to i8* (%class.Element*, i8*)***
+  %5 = load i8* (%class.Element*, i8*)**, i8* (%class.Element*, i8*)*** %4, align 8, !tbaa !20285
+  %6 = getelementptr inbounds i8* (%class.Element*, i8*)*, i8* (%class.Element*, i8*)** %5, i64 17
+  %7 = load i8* (%class.Element*, i8*)*, i8* (%class.Element*, i8*)** %6, align 8
+  %8 = tail call i8* %7(%class.Element* %1, i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str.21.5833, i64 0, i64 0))
+  %9 = icmp eq i8* %8, null
+  br i1 %9, label %10, label %12
+
+10:                                               ; preds = %3
+  %11 = tail call i32 (%class.ErrorHandler*, i8*, ...) @_ZN12ErrorHandler7warningEPKcz(%class.ErrorHandler* %2, i8* getelementptr inbounds ([103 x i8], [103 x i8]* @.str.22.5834, i64 0, i64 0), i32 60000, %class.FlowStateElement* %0, %class.Element* nonnull %1)
+  br label %12
+
+12:                                               ; preds = %10, %3
+  ret i32 0
+}
+
+define dso_local i32 @_ZN18FlowIPLoadBalancer7handlerEiR6StringP7ElementPK7HandlerP12ErrorHandler(i32 %0, %class.String* dereferenceable(24) %1, %class.Element* nocapture readonly %2, %class.Handler* nocapture readonly %3, %class.ErrorHandler* nocapture readnone %4) #0 align 2 {
+  %6 = getelementptr inbounds %class.Element, %class.Element* %2, i64 1
+  %7 = bitcast %class.Element* %6 to %class.LoadBalancer.6201*
+  %8 = getelementptr inbounds %class.Handler, %class.Handler* %3, i64 0, i32 3
+  %9 = load i8*, i8** %8, align 8, !tbaa !20501
+  %10 = getelementptr inbounds %class.Handler, %class.Handler* %3, i64 0, i32 4
+  %11 = load i8*, i8** %10, align 8, !tbaa !22574
+  %12 = tail call fastcc i32 @_ZN12LoadBalancerI9IPAddressE10lb_handlerEiR6StringPvS4_P12ErrorHandler(%class.LoadBalancer.6201* nonnull %7, i32 %0, %class.String* nonnull dereferenceable(24) %1, i8* %9, i8* %11)
+  ret i32 %12
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancer12read_handlerEP7ElementPv(%class.String* noalias sret %0, %class.Element* nocapture readonly %1, i8* %2) #0 align 2 {
+  %4 = getelementptr inbounds %class.Element, %class.Element* %1, i64 1
+  %5 = bitcast %class.Element* %4 to %class.LoadBalancer.6201*
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressE15lb_read_handlerEPv(%class.String* noalias %0, %class.LoadBalancer.6201* nonnull %5, i8* %2)
+  ret void
+}
+
+define dso_local i32 @_ZN18FlowIPLoadBalancer13write_handlerERK6StringP7ElementPvP12ErrorHandler(%class.String* nocapture readnone dereferenceable(24) %0, %class.Element* %1, i8* %2, %class.ErrorHandler* nocapture readnone %3) #0 align 2 {
+  %5 = getelementptr inbounds %class.Element, %class.Element* %1, i64 1
+  %6 = bitcast %class.Element* %5 to %class.LoadBalancer.6201*
+  %7 = ptrtoint i8* %2 to i64
+  switch i64 %7, label %10 [
+    i64 7, label %8
+    i64 8, label %9
+  ]
+
+8:                                                ; preds = %4
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressE10add_serverEv(%class.LoadBalancer.6201* nonnull %6)
+  br label %10
+
+9:                                                ; preds = %4
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressE13remove_serverEv(%class.LoadBalancer.6201* nonnull %6)
+  br label %10
+
+10:                                               ; preds = %9, %8, %4
+  ret i32 -1
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancer15push_flow_batchEiPP9IPLBEntryP11PacketBatch(%class.FlowIPLoadBalancer* nocapture readonly %0, i32 %1, %class.atomic_uint32_t** nocapture readonly %2, %class.PacketBatch* %3) local_unnamed_addr #0 align 2 {
+  %5 = icmp eq %class.PacketBatch* %3, null
+  br i1 %5, label %.loopexit, label %6
+
+6:                                                ; preds = %4
+  %7 = bitcast %class.PacketBatch* %3 to %class.Packet*
+  %8 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %3, i64 136
+  %9 = bitcast %class.PacketBatch* %8 to %class.Packet**
+  %10 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  %11 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3, i32 0, i32 1
+  %12 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %13 = bitcast %class.LoadBalancer.base.6199* %12 to %class.LoadBalancer.6201*
+  %14 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3, i32 0, i32 0
+  br label %15
+
+15:                                               ; preds = %43, %6
+  %16 = phi %class.Packet** [ %9, %6 ], [ %56, %43 ]
+  %17 = phi %class.Packet* [ %7, %6 ], [ %18, %43 ]
+  %18 = load %class.Packet*, %class.Packet** %16, align 8, !tbaa !20284
+  %19 = load %class.atomic_uint32_t*, %class.atomic_uint32_t** %2, align 8, !tbaa !20284
+  %20 = getelementptr inbounds %class.atomic_uint32_t, %class.atomic_uint32_t* %19, i64 0, i32 0
+  %21 = load i32, i32* %20, align 4, !tbaa !22571
+  %22 = getelementptr inbounds %class.Packet, %class.Packet* %17, i64 0, i32 1
+  %23 = load %class.Packet*, %class.Packet** %22, align 8, !tbaa !20801
+  %24 = icmp eq %class.Packet* %23, null
+  br i1 %24, label %25, label %31
+
+25:                                               ; preds = %15
+  %26 = getelementptr inbounds %class.Packet, %class.Packet* %17, i64 0, i32 0, i32 0
+  %27 = load volatile i32, i32* %26, align 4, !tbaa !20799
+  %28 = icmp ugt i32 %27, 1
+  br i1 %28, label %31, label %29
+
+29:                                               ; preds = %25
+  %30 = bitcast %class.Packet* %17 to %class.WritablePacket*
+  br label %33
+
+31:                                               ; preds = %25, %15
+  %32 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %17, i32 0, i32 0, i1 zeroext true)
+  br label %33
+
+33:                                               ; preds = %31, %29
+  %34 = phi %class.WritablePacket* [ %32, %31 ], [ %30, %29 ]
+  %35 = getelementptr %class.WritablePacket, %class.WritablePacket* %34, i64 0, i32 0
+  %36 = load i32, i32* %10, align 8, !tbaa !22543
+  %37 = icmp eq i32 %36, 0
+  br i1 %37, label %39, label %38, !prof !20376, !misexpect !20323
+
+38:                                               ; preds = %33
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([19 x i8], [19 x i8]* @.str.7.2807, i64 0, i64 0), i32 %21)
+  br label %39
+
+39:                                               ; preds = %38, %33
+  %40 = load i32, i32* %11, align 8, !tbaa !22573
+  %41 = icmp ugt i32 %40, %21
+  br i1 %41, label %43, label %42
+
+42:                                               ; preds = %39
+  tail call void @__assert_fail(i8* getelementptr inbounds ([33 x i8], [33 x i8]* @.str.9.16717, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.10.16718, i64 0, i64 0), i32 293, i8* getelementptr inbounds ([88 x i8], [88 x i8]* @__PRETTY_FUNCTION__._ZN6VectorI9IPAddressLm16EEixEi.4654, i64 0, i64 0)) #57
+  unreachable
+
+43:                                               ; preds = %39
+  %44 = load %struct.char_array.4*, %struct.char_array.4** %14, align 8, !tbaa !22643
+  %45 = sext i32 %21 to i64
+  %46 = getelementptr inbounds %struct.char_array.4, %struct.char_array.4* %44, i64 %45
+  %47 = bitcast %struct.char_array.4* %46 to i32*
+  %48 = load i32, i32* %47, align 4, !tbaa !20283
+  %49 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %34, i64 0, i32 0, i32 6, i32 2
+  %50 = bitcast i8** %49 to %struct.click_ip**
+  %51 = load %struct.click_ip*, %struct.click_ip** %50, align 8, !tbaa !20400
+  %52 = getelementptr inbounds %struct.click_ip, %struct.click_ip* %51, i64 0, i32 9, i32 0
+  store i32 %48, i32* %52, align 4, !tbaa.struct !20922
+  %53 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %34, i64 0, i32 0, i32 6, i32 0
+  %54 = bitcast %"union.Packet::Anno"* %53 to i32*
+  store i32 %48, i32* %54, align 8, !tbaa !20287
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressE10track_loadEP6Packeti(%class.LoadBalancer.6201* nonnull %13, %class.Packet* %35, i32 %21)
+  %55 = icmp eq %class.Packet* %18, null
+  %56 = getelementptr inbounds %class.Packet, %class.Packet* %18, i64 0, i32 6, i32 6
+  br i1 %55, label %.loopexit, label %15
+
+.loopexit:                                        ; preds = %43, %4
+  ret void
+}
+
+define internal void @_ZN16FlowStateElementI18FlowIPLoadBalancer9IPLBEntry14DefaultCheckerED0Ev(%class.FlowStateElement* nocapture readnone %0) unnamed_addr #24 comdat align 2 {
+  tail call void @llvm.trap() #57
+  unreachable
+}
+
+define dso_local zeroext i1 @_ZN18FlowIPLoadBalancer8new_flowEP9IPLBEntryP6Packet(%class.FlowIPLoadBalancer* %0, %class.atomic_uint32_t* nocapture %1, %class.Packet* nocapture readonly %2) local_unnamed_addr #0 align 2 {
+  %4 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 6, i32 2
+  %5 = bitcast i8** %4 to %struct.click_ip**
+  %6 = load %struct.click_ip*, %struct.click_ip** %5, align 8, !tbaa !20400
+  %7 = getelementptr inbounds %struct.click_ip, %struct.click_ip* %6, i64 0, i32 6
+  %8 = load i8, i8* %7, align 1, !tbaa !20654
+  %9 = icmp eq i8 %8, 6
+  br i1 %9, label %10, label %27
+
+10:                                               ; preds = %3
+  %11 = getelementptr inbounds %class.Packet, %class.Packet* %2, i64 0, i32 6, i32 3
+  %12 = bitcast i8** %11 to %struct.click_tcp**
+  %13 = load %struct.click_tcp*, %struct.click_tcp** %12, align 8, !tbaa !20562
+  %14 = getelementptr inbounds %struct.click_tcp, %struct.click_tcp* %13, i64 0, i32 5
+  %15 = load i8, i8* %14, align 1, !tbaa !20721
+  %16 = and i8 %15, 2
+  %17 = icmp eq i8 %16, 0
+  br i1 %17, label %18, label %27
+
+18:                                               ; preds = %10
+  %19 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  %20 = load i32, i32* %19, align 8, !tbaa !22543
+  %21 = icmp eq i32 %20, 0
+  br i1 %21, label %23, label %22, !prof !20376, !misexpect !20323
+
+22:                                               ; preds = %18
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([23 x i8], [23 x i8]* @.str.5.2802, i64 0, i64 0))
+  br label %23
+
+23:                                               ; preds = %22, %18
+  %24 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 3
+  %25 = load i8, i8* %24, align 4, !tbaa !22541, !range !20292
+  %26 = icmp eq i8 %25, 0
+  br i1 %26, label %36, label %27
+
+27:                                               ; preds = %23, %10, %3
+  %28 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %29 = bitcast %class.LoadBalancer.base.6199* %28 to %class.LoadBalancer.6201*
+  %30 = tail call fastcc i32 @_ZN12LoadBalancerI9IPAddressE11pick_serverEPK6Packet(%class.LoadBalancer.6201* nonnull %29, %class.Packet* nonnull %2)
+  %31 = getelementptr inbounds %class.atomic_uint32_t, %class.atomic_uint32_t* %1, i64 0, i32 0
+  store i32 %30, i32* %31, align 4, !tbaa !22571
+  %32 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  %33 = load i32, i32* %32, align 8, !tbaa !22543
+  %34 = icmp eq i32 %33, 0
+  br i1 %34, label %36, label %35, !prof !20376, !misexpect !20323
+
+35:                                               ; preds = %27
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.24.5795, i64 0, i64 0), i32 %30)
+  br label %36
+
+36:                                               ; preds = %35, %27, %23
+  %37 = phi i1 [ false, %23 ], [ true, %27 ], [ true, %35 ]
+  ret i1 %37
+}
+
+define dso_local void @_ZN18FlowIPLoadBalancer9push_flowEiP9IPLBEntryP11PacketBatch(%class.FlowIPLoadBalancer* nocapture readonly %0, i32 %1, %class.atomic_uint32_t* nocapture readonly %2, %class.PacketBatch* %3) local_unnamed_addr #0 align 2 {
+  %5 = getelementptr inbounds %class.atomic_uint32_t, %class.atomic_uint32_t* %2, i64 0, i32 0
+  %6 = load i32, i32* %5, align 4, !tbaa !22571
+  %7 = icmp eq %class.PacketBatch* %3, null
+  br i1 %7, label %12, label %8
+
+8:                                                ; preds = %4
+  %9 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %3, i64 136
+  %10 = bitcast %class.PacketBatch* %9 to %class.Packet**
+  %11 = load %class.Packet*, %class.Packet** %10, align 8, !tbaa !20284
+  br label %12
+
+12:                                               ; preds = %8, %4
+  %13 = phi %class.Packet* [ %11, %8 ], [ null, %4 ]
+  %14 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %3, i64 48, i32 0
+  %15 = getelementptr inbounds i8, i8* %14, i64 24
+  %16 = bitcast i8* %15 to i16*
+  %17 = load i16, i16* %16, align 2, !tbaa !20287
+  %18 = icmp eq i16 %17, 0
+  br i1 %18, label %19, label %20
+
+19:                                               ; preds = %12
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+20:                                               ; preds = %12
+  %21 = bitcast %class.PacketBatch* %3 to %class.Packet*
+  %22 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 4
+  %23 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3, i32 0, i32 1
+  %24 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1
+  %25 = bitcast %class.LoadBalancer.base.6199* %24 to %class.LoadBalancer.6201*
+  %26 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 1, i32 3, i32 0, i32 0
+  %27 = sext i32 %6 to i64
+  br label %28
+
+28:                                               ; preds = %80, %20
+  %29 = phi %class.Packet* [ %13, %20 ], [ %82, %80 ]
+  %30 = phi %class.Packet* [ %21, %20 ], [ %29, %80 ]
+  %31 = phi %class.Packet* [ null, %20 ], [ %46, %80 ]
+  %32 = phi %class.PacketBatch* [ %3, %20 ], [ %78, %80 ]
+  %33 = getelementptr inbounds %class.Packet, %class.Packet* %30, i64 0, i32 1
+  %34 = load %class.Packet*, %class.Packet** %33, align 8, !tbaa !20801
+  %35 = icmp eq %class.Packet* %34, null
+  br i1 %35, label %36, label %42
+
+36:                                               ; preds = %28
+  %37 = getelementptr inbounds %class.Packet, %class.Packet* %30, i64 0, i32 0, i32 0
+  %38 = load volatile i32, i32* %37, align 4, !tbaa !20799
+  %39 = icmp ugt i32 %38, 1
+  br i1 %39, label %42, label %40
+
+40:                                               ; preds = %36
+  %41 = bitcast %class.Packet* %30 to %class.WritablePacket*
+  br label %44
+
+42:                                               ; preds = %36, %28
+  %43 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %30, i32 0, i32 0, i1 zeroext true)
+  br label %44
+
+44:                                               ; preds = %42, %40
+  %45 = phi %class.WritablePacket* [ %43, %42 ], [ %41, %40 ]
+  %46 = getelementptr %class.WritablePacket, %class.WritablePacket* %45, i64 0, i32 0
+  %47 = load i32, i32* %22, align 8, !tbaa !22543
+  %48 = icmp eq i32 %47, 0
+  br i1 %48, label %50, label %49, !prof !20376, !misexpect !20323
+
+49:                                               ; preds = %44
+  tail call void (i8*, ...) @click_chatter(i8* getelementptr inbounds ([19 x i8], [19 x i8]* @.str.7.2807, i64 0, i64 0), i32 %6)
+  br label %50
+
+50:                                               ; preds = %49, %44
+  %51 = load i32, i32* %23, align 8, !tbaa !22573
+  %52 = icmp ugt i32 %51, %6
+  br i1 %52, label %54, label %53
+
+53:                                               ; preds = %50
+  tail call void @__assert_fail(i8* getelementptr inbounds ([33 x i8], [33 x i8]* @.str.9.16717, i64 0, i64 0), i8* getelementptr inbounds ([27 x i8], [27 x i8]* @.str.10.16718, i64 0, i64 0), i32 293, i8* getelementptr inbounds ([88 x i8], [88 x i8]* @__PRETTY_FUNCTION__._ZN6VectorI9IPAddressLm16EEixEi.4654, i64 0, i64 0)) #57
+  unreachable
+
+54:                                               ; preds = %50
+  %55 = load %struct.char_array.4*, %struct.char_array.4** %26, align 8, !tbaa !22643
+  %56 = getelementptr inbounds %struct.char_array.4, %struct.char_array.4* %55, i64 %27
+  %57 = bitcast %struct.char_array.4* %56 to i32*
+  %58 = load i32, i32* %57, align 4, !tbaa !20283
+  %59 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %45, i64 0, i32 0, i32 6, i32 2
+  %60 = bitcast i8** %59 to %struct.click_ip**
+  %61 = load %struct.click_ip*, %struct.click_ip** %60, align 8, !tbaa !20400
+  %62 = getelementptr inbounds %struct.click_ip, %struct.click_ip* %61, i64 0, i32 9, i32 0
+  store i32 %58, i32* %62, align 4, !tbaa.struct !20922
+  %63 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %45, i64 0, i32 0, i32 6, i32 0
+  %64 = bitcast %"union.Packet::Anno"* %63 to i32*
+  store i32 %58, i32* %64, align 8, !tbaa !20287
+  tail call fastcc void @_ZN12LoadBalancerI9IPAddressE10track_loadEP6Packeti(%class.LoadBalancer.6201* nonnull %25, %class.Packet* %46, i32 %6)
+  %65 = icmp eq %class.Packet* %46, %30
+  br i1 %65, label %77, label %66
+
+66:                                               ; preds = %54
+  %67 = icmp eq %class.Packet* %31, null
+  br i1 %67, label %70, label %68
+
+68:                                               ; preds = %66
+  %69 = getelementptr inbounds %class.Packet, %class.Packet* %31, i64 0, i32 6, i32 6
+  store %class.Packet* %46, %class.Packet** %69, align 8, !tbaa !20337
+  br label %74
+
+70:                                               ; preds = %66
+  %71 = bitcast %class.WritablePacket* %45 to %class.PacketBatch*
+  %72 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %45, i64 0, i32 0, i32 6, i32 0, i32 0, i64 3
+  %73 = bitcast i64* %72 to i16*
+  store i16 %17, i16* %73, align 2, !tbaa !20287
+  br label %74
+
+74:                                               ; preds = %70, %68
+  %75 = phi %class.PacketBatch* [ %32, %68 ], [ %71, %70 ]
+  %76 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %45, i64 0, i32 0, i32 6, i32 6
+  store %class.Packet* %29, %class.Packet** %76, align 8, !tbaa !20337
+  br label %77
+
+77:                                               ; preds = %74, %54
+  %78 = phi %class.PacketBatch* [ %75, %74 ], [ %32, %54 ]
+  %79 = icmp eq %class.Packet* %29, null
+  br i1 %79, label %83, label %80
+
+80:                                               ; preds = %77
+  %81 = getelementptr inbounds %class.Packet, %class.Packet* %29, i64 0, i32 6, i32 6
+  %82 = load %class.Packet*, %class.Packet** %81, align 8, !tbaa !20284
+  br label %28
+
+83:                                               ; preds = %77
+  %84 = icmp eq %class.PacketBatch* %78, null
+  br i1 %84, label %101, label %85
+
+85:                                               ; preds = %83
+  %86 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 6, i64 1
+  %87 = load i32, i32* %86, align 4, !tbaa !20283
+  %88 = icmp eq i32 %87, 0
+  br i1 %88, label %100, label %89
+
+89:                                               ; preds = %85
+  %90 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %0, i64 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 4, i64 1
+  %91 = load %"class.Element::Port"*, %"class.Element::Port"** %90, align 8, !tbaa !20284
+  %92 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %91, i64 0, i32 0
+  %93 = load %class.Element*, %class.Element** %92, align 8, !tbaa !20278
+  %94 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %91, i64 0, i32 1
+  %95 = load i32, i32* %94, align 8, !tbaa !20280
+  %96 = bitcast %class.Element* %93 to void (%class.Element*, i32, %class.PacketBatch*)***
+  %97 = load void (%class.Element*, i32, %class.PacketBatch*)**, void (%class.Element*, i32, %class.PacketBatch*)*** %96, align 8, !tbaa !20285
+  %98 = getelementptr inbounds void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %97, i64 5
+  %99 = load void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %98, align 8
+  tail call void %99(%class.Element* %93, i32 %95, %class.PacketBatch* nonnull %78)
+  br label %101
+
+100:                                              ; preds = %85
+  tail call void @_ZN11PacketBatch9fast_killEv(%class.PacketBatch* nonnull %78)
+  br label %101
+
+101:                                              ; preds = %100, %89, %83
+  ret void
+}
+
+define dso_local void @_ZN25FlowIPLoadBalancerReverseC2Ev(%class.FlowIPLoadBalancerReverse* %0) unnamed_addr #2 align 2 {
+  %2 = getelementptr %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 0
+  %3 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 1
+  %4 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 2
+  store i8 0, i8* %4, align 4, !tbaa !20277
+  %5 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %6 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %5, i64 0, i32 0
+  store %class.Element* null, %class.Element** %6, align 8, !tbaa !20278
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 0, i32 1
+  store i32 -2, i32* %7, align 8, !tbaa !20280
+  %8 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 0
+  store %class.Element* null, %class.Element** %8, align 8, !tbaa !20278
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 1, i32 1
+  store i32 -2, i32* %9, align 8, !tbaa !20280
+  %10 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 0
+  store %class.Element* null, %class.Element** %10, align 8, !tbaa !20278
+  %11 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 2, i32 1
+  store i32 -2, i32* %11, align 8, !tbaa !20280
+  %12 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 0
+  store %class.Element* null, %class.Element** %12, align 8, !tbaa !20278
+  %13 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 3, i32 1
+  store i32 -2, i32* %13, align 8, !tbaa !20280
+  %14 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 7
+  store %class.Router* null, %class.Router** %14, align 8, !tbaa !20281
+  %15 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 8
+  store i32 -1, i32* %15, align 8, !tbaa !20282
+  %16 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 10
+  %17 = bitcast %class.Vector* %16 to i8*
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(17) %17, i8 0, i64 17, i1 false) #34
+  %18 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %19 = add nsw i32 %18, 1
+  store i32 %19, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %20 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %20, align 8, !tbaa !20284
+  %21 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  store %"class.Element::Port"* %5, %"class.Element::Port"** %21, align 8, !tbaa !20284
+  %22 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  store i32 0, i32* %22, align 4, !tbaa !20283
+  %23 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 6, i64 0
+  store i32 0, i32* %23, align 8, !tbaa !20283
+  store i32 1, i32* %3, align 8, !tbaa !20267
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [39 x i8*] }, { [39 x i8*] }* @_ZTV25FlowIPLoadBalancerReverse, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %24 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 1
+  store %class.FlowIPLoadBalancer* null, %class.FlowIPLoadBalancer** %24, align 8, !tbaa !22674
+  ret void
+}
+
+define dso_local void @_ZN25FlowIPLoadBalancerReverseD2Ev(%class.FlowIPLoadBalancerReverse* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define dso_local void @_ZN25FlowIPLoadBalancerReverseD0Ev(%class.FlowIPLoadBalancerReverse* %0) unnamed_addr #2 align 2 personality i32 (...)* @__gxx_personality_v0 {
+  %2 = getelementptr %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 0
+  store i32 (...)** bitcast (i8** getelementptr inbounds ({ [38 x i8*] }, { [38 x i8*] }* @_ZTV7Element, i64 0, inrange i32 0, i64 2) to i32 (...)**), i32 (...)*** %2, align 8, !tbaa !20285
+  %3 = load i32, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %4 = add nsw i32 %3, -1
+  store i32 %4, i32* @_ZN7Element19nelements_allocatedE, align 4, !tbaa !20283
+  %5 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 0
+  %6 = load %"class.Element::Port"*, %"class.Element::Port"** %5, align 8, !tbaa !20284
+  %7 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 5, i64 0
+  %8 = icmp uge %"class.Element::Port"* %6, %7
+  %9 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 6
+  %10 = bitcast [2 x i32]* %9 to %"class.Element::Port"*
+  %11 = icmp ule %"class.Element::Port"* %6, %10
+  %12 = and i1 %11, %8
+  %13 = icmp eq %"class.Element::Port"* %6, null
+  %14 = or i1 %13, %12
+  br i1 %14, label %17, label %15
+
+15:                                               ; preds = %1
+  %16 = bitcast %"class.Element::Port"* %6 to i8*
+  tail call void @_ZdaPv(i8* %16) #55
+  br label %17
+
+17:                                               ; preds = %15, %1
+  %18 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %19 = load %"class.Element::Port"*, %"class.Element::Port"** %18, align 8, !tbaa !20284
+  %20 = icmp uge %"class.Element::Port"* %19, %7
+  %21 = icmp ule %"class.Element::Port"* %19, %10
+  %22 = and i1 %21, %20
+  %23 = icmp eq %"class.Element::Port"* %19, null
+  %24 = or i1 %23, %22
+  br i1 %24, label %27, label %25
+
+25:                                               ; preds = %17
+  %26 = bitcast %"class.Element::Port"* %19 to i8*
+  tail call void @_ZdaPv(i8* %26) #55
+  br label %27
+
+27:                                               ; preds = %25, %17
+  %28 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 10
+  %29 = bitcast %class.Vector* %28 to i8**
+  %30 = load i8*, i8** %29, align 8, !tbaa !20288
+  %31 = icmp eq i8* %30, null
+  br i1 %31, label %_ZN12BatchElementD2Ev.exit, label %32
+
+32:                                               ; preds = %27
+  tail call void @_ZdaPv(i8* nonnull %30) #55
+  br label %_ZN12BatchElementD2Ev.exit
+
+_ZN12BatchElementD2Ev.exit:                       ; preds = %32, %27
+  ret void
+}
+
+define dso_local void @_ZN25FlowIPLoadBalancerReverse10push_batchEiP11PacketBatch(%class.FlowIPLoadBalancerReverse* nocapture readonly %0, i32 %1, %class.PacketBatch* %2) unnamed_addr #0 align 2 {
+  %4 = icmp eq %class.PacketBatch* %2, null
+  br i1 %4, label %9, label %5
+
+5:                                                ; preds = %3
+  %6 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 136
+  %7 = bitcast %class.PacketBatch* %6 to %class.Packet**
+  %8 = load %class.Packet*, %class.Packet** %7, align 8, !tbaa !20284
+  br label %9
+
+9:                                                ; preds = %5, %3
+  %10 = phi %class.Packet* [ %8, %5 ], [ null, %3 ]
+  %11 = getelementptr inbounds %class.PacketBatch, %class.PacketBatch* %2, i64 48, i32 0
+  %12 = getelementptr inbounds i8, i8* %11, i64 24
+  %13 = bitcast i8* %12 to i16*
+  %14 = load i16, i16* %13, align 2, !tbaa !20287
+  %15 = icmp eq i16 %14, 0
+  br i1 %15, label %16, label %17
+
+16:                                               ; preds = %9
+  tail call void @__assert_fail(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @.str.259.16395, i64 0, i64 0), i8* getelementptr inbounds ([32 x i8], [32 x i8]* @.str.6.13925, i64 0, i64 0), i32 439, i8* getelementptr inbounds ([34 x i8], [34 x i8]* @__PRETTY_FUNCTION__._ZN11PacketBatch5countEv.13926, i64 0, i64 0)) #57
+  unreachable
+
+17:                                               ; preds = %9
+  %18 = bitcast %class.PacketBatch* %2 to %class.Packet*
+  %19 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 1
+  br label %20
+
+20:                                               ; preds = %61, %17
+  %21 = phi %class.Packet* [ %10, %17 ], [ %63, %61 ]
+  %22 = phi %class.Packet* [ %18, %17 ], [ %21, %61 ]
+  %23 = phi %class.Packet* [ null, %17 ], [ %38, %61 ]
+  %24 = phi %class.PacketBatch* [ %2, %17 ], [ %59, %61 ]
+  %25 = getelementptr inbounds %class.Packet, %class.Packet* %22, i64 0, i32 1
+  %26 = load %class.Packet*, %class.Packet** %25, align 8, !tbaa !20801
+  %27 = icmp eq %class.Packet* %26, null
+  br i1 %27, label %28, label %34
+
+28:                                               ; preds = %20
+  %29 = getelementptr inbounds %class.Packet, %class.Packet* %22, i64 0, i32 0, i32 0
+  %30 = load volatile i32, i32* %29, align 4, !tbaa !20799
+  %31 = icmp ugt i32 %30, 1
+  br i1 %31, label %34, label %32
+
+32:                                               ; preds = %28
+  %33 = bitcast %class.Packet* %22 to %class.WritablePacket*
+  br label %36
+
+34:                                               ; preds = %28, %20
+  %35 = tail call %class.WritablePacket* @_ZN6Packet19expensive_uniqueifyEiib(%class.Packet* nonnull %22, i32 0, i32 0, i1 zeroext true)
+  br label %36
+
+36:                                               ; preds = %34, %32
+  %37 = phi %class.WritablePacket* [ %35, %34 ], [ %33, %32 ]
+  %38 = getelementptr %class.WritablePacket, %class.WritablePacket* %37, i64 0, i32 0
+  %39 = load %class.FlowIPLoadBalancer*, %class.FlowIPLoadBalancer** %19, align 8, !tbaa !22674
+  %40 = getelementptr inbounds %class.FlowIPLoadBalancer, %class.FlowIPLoadBalancer* %39, i64 0, i32 2, i32 0
+  %41 = load i32, i32* %40, align 4, !tbaa !21122
+  %42 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %37, i64 0, i32 0, i32 6, i32 2
+  %43 = bitcast i8** %42 to %struct.click_ip**
+  %44 = load %struct.click_ip*, %struct.click_ip** %43, align 8, !tbaa !20400
+  %45 = getelementptr inbounds %struct.click_ip, %struct.click_ip* %44, i64 0, i32 8, i32 0
+  store i32 %41, i32* %45, align 4, !tbaa.struct !20922
+  %46 = icmp eq %class.Packet* %38, %22
+  br i1 %46, label %58, label %47
+
+47:                                               ; preds = %36
+  %48 = icmp eq %class.Packet* %23, null
+  br i1 %48, label %51, label %49
+
+49:                                               ; preds = %47
+  %50 = getelementptr inbounds %class.Packet, %class.Packet* %23, i64 0, i32 6, i32 6
+  store %class.Packet* %38, %class.Packet** %50, align 8, !tbaa !20337
+  br label %55
+
+51:                                               ; preds = %47
+  %52 = bitcast %class.WritablePacket* %37 to %class.PacketBatch*
+  %53 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %37, i64 0, i32 0, i32 6, i32 0, i32 0, i64 3
+  %54 = bitcast i64* %53 to i16*
+  store i16 %14, i16* %54, align 2, !tbaa !20287
+  br label %55
+
+55:                                               ; preds = %51, %49
+  %56 = phi %class.PacketBatch* [ %24, %49 ], [ %52, %51 ]
+  %57 = getelementptr inbounds %class.WritablePacket, %class.WritablePacket* %37, i64 0, i32 0, i32 6, i32 6
+  store %class.Packet* %21, %class.Packet** %57, align 8, !tbaa !20337
+  br label %58
+
+58:                                               ; preds = %55, %36
+  %59 = phi %class.PacketBatch* [ %56, %55 ], [ %24, %36 ]
+  %60 = icmp eq %class.Packet* %21, null
+  br i1 %60, label %64, label %61
+
+61:                                               ; preds = %58
+  %62 = getelementptr inbounds %class.Packet, %class.Packet* %21, i64 0, i32 6, i32 6
+  %63 = load %class.Packet*, %class.Packet** %62, align 8, !tbaa !20284
+  br label %20
+
+64:                                               ; preds = %58
+  %65 = icmp eq %class.PacketBatch* %59, null
+  br i1 %65, label %82, label %66
+
+66:                                               ; preds = %64
+  %67 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 6, i64 1
+  %68 = load i32, i32* %67, align 4, !tbaa !20283
+  %69 = icmp eq i32 %68, 0
+  br i1 %69, label %81, label %70
+
+70:                                               ; preds = %66
+  %71 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 0, i32 0, i32 4, i64 1
+  %72 = load %"class.Element::Port"*, %"class.Element::Port"** %71, align 8, !tbaa !20284
+  %73 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %72, i64 0, i32 0
+  %74 = load %class.Element*, %class.Element** %73, align 8, !tbaa !20278
+  %75 = getelementptr inbounds %"class.Element::Port", %"class.Element::Port"* %72, i64 0, i32 1
+  %76 = load i32, i32* %75, align 8, !tbaa !20280
+  %77 = bitcast %class.Element* %74 to void (%class.Element*, i32, %class.PacketBatch*)***
+  %78 = load void (%class.Element*, i32, %class.PacketBatch*)**, void (%class.Element*, i32, %class.PacketBatch*)*** %77, align 8, !tbaa !20285
+  %79 = getelementptr inbounds void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %78, i64 5
+  %80 = load void (%class.Element*, i32, %class.PacketBatch*)*, void (%class.Element*, i32, %class.PacketBatch*)** %79, align 8
+  tail call void %80(%class.Element* %74, i32 %76, %class.PacketBatch* nonnull %59)
+  br label %82
+
+81:                                               ; preds = %66
+  tail call void @_ZN11PacketBatch9fast_killEv(%class.PacketBatch* nonnull %59)
+  br label %82
+
+82:                                               ; preds = %81, %70, %64
+  ret void
+}
+
+define internal i8* @_ZNK25FlowIPLoadBalancerReverse10class_nameEv(%class.FlowIPLoadBalancerReverse* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([26 x i8], [26 x i8]* @.str.87.13091, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK25FlowIPLoadBalancerReverse10port_countEv(%class.FlowIPLoadBalancerReverse* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.6.11182, i64 0, i64 0)
+}
+
+define internal i8* @_ZNK25FlowIPLoadBalancerReverse10processingEv(%class.FlowIPLoadBalancerReverse* nocapture readnone %0) unnamed_addr #4 comdat align 2 {
+  ret i8* getelementptr inbounds ([2 x i8], [2 x i8]* @_ZN7Element4PUSHE, i64 0, i64 0)
+}
+
+define dso_local i32 @_ZN25FlowIPLoadBalancerReverse9configureER6VectorI6StringLm16EEP12ErrorHandler(%class.FlowIPLoadBalancerReverse* %0, %class.Vector.0* dereferenceable(16) %1, %class.ErrorHandler* %2) unnamed_addr #0 align 2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+  %4 = alloca %class.Element*, align 8
+  %5 = alloca %class.Element*, align 8
+  %6 = alloca %class.Args, align 8
+  %7 = bitcast %class.Element** %5 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 8, i8* nonnull %7) #34
+  %8 = bitcast %class.Args* %6 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 112, i8* nonnull %8) #34
+  %9 = bitcast %class.Args* %6 to %class.FlowIPLoadBalancerReverse**
+  store %class.FlowIPLoadBalancerReverse* %0, %class.FlowIPLoadBalancerReverse** %9, align 8, !tbaa !20294
+  %10 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 1
+  store %class.ErrorHandler* %2, %class.ErrorHandler** %10, align 8, !tbaa !20296
+  %11 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 2
+  store i8* null, i8** %11, align 8, !tbaa !20297
+  %12 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 0, i32 3
+  store i8 0, i8* %12, align 8, !tbaa !20298
+  %13 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 5
+  %14 = bitcast %class.Vector.2* %13 to i8*
+  call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(16) %14, i8 0, i64 16, i1 false) #34
+  invoke void @_ZN4Args10initializeEPK6VectorI6StringLm16EE(%class.Args* nonnull %6, %class.Vector.0* nonnull %1)
+          to label %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit unwind label %15
+
+15:                                               ; preds = %3
+  %16 = landingpad { i8*, i32 }
+          cleanup
+  %17 = bitcast %class.Vector.2* %13 to i8**
+  %18 = load i8*, i8** %17, align 8, !tbaa !20299
+  %19 = icmp eq i8* %18, null
+  br i1 %19, label %21, label %20
+
+20:                                               ; preds = %15
+  call void @_ZdaPv(i8* nonnull %18) #55
+  br label %21
+
+21:                                               ; preds = %20, %15
+  resume { i8*, i32 } %16
+
+_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit: ; preds = %3
+  invoke fastcc void @_Z14args_base_readIP7ElementEvP4ArgsPKciRT_(%class.Args* nonnull %6, i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.3.8413, i64 0, i64 0), i32 3, %class.Element** nonnull dereferenceable(8) %5)
+          to label %22 unwind label %.loopexit.split-lp
+
+22:                                               ; preds = %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  invoke void @_ZN4Args14check_completeEv(%class.Args* nonnull %6)
+          to label %.noexc unwind label %.loopexit.split-lp
+
+.noexc:                                           ; preds = %22
+  %23 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 2
+  %24 = load i8, i8* %23, align 2, !tbaa !20301, !range !20292
+  %25 = icmp eq i8 %24, 0
+  br i1 %25, label %_ZN4Args8completeEv.exit, label %26
+
+26:                                               ; preds = %.noexc
+  %27 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 6
+  %28 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %27, align 8, !tbaa !20304
+  %29 = icmp eq %"struct.Args::Slot"* %28, null
+  br i1 %29, label %.loopexit3, label %30
+
+30:                                               ; preds = %26
+  %31 = bitcast %"struct.Args::Slot"** %27 to i64*
+  br label %35
+
+.loopexit3:                                       ; preds = %.noexc1, %26
+  %32 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 3
+  %33 = load i8, i8* %32, align 1, !tbaa !20305
+  %34 = icmp eq i8 %33, 0
+  br i1 %34, label %.loopexit, label %.preheader
+
+35:                                               ; preds = %.noexc1, %30
+  %36 = phi %"struct.Args::Slot"* [ %28, %30 ], [ %47, %.noexc1 ]
+  %37 = getelementptr inbounds %"struct.Args::Slot", %"struct.Args::Slot"* %36, i64 0, i32 1
+  %38 = bitcast %"struct.Args::Slot"** %37 to i64*
+  %39 = load i64, i64* %38, align 8, !tbaa !20306
+  store i64 %39, i64* %31, align 8, !tbaa !20304
+  %40 = bitcast %"struct.Args::Slot"* %36 to void (%"struct.Args::Slot"*)***
+  %41 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %40, align 8, !tbaa !20285
+  %42 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %41, i64 2
+  %43 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %42, align 8
+  invoke void %43(%"struct.Args::Slot"* nonnull %36)
+          to label %.noexc1 unwind label %.loopexit2
+
+.noexc1:                                          ; preds = %35
+  %44 = load void (%"struct.Args::Slot"*)**, void (%"struct.Args::Slot"*)*** %40, align 8, !tbaa !20285
+  %45 = getelementptr inbounds void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %44, i64 1
+  %46 = load void (%"struct.Args::Slot"*)*, void (%"struct.Args::Slot"*)** %45, align 8
+  call void %46(%"struct.Args::Slot"* nonnull %36) #34
+  %47 = load %"struct.Args::Slot"*, %"struct.Args::Slot"** %27, align 8, !tbaa !20304
+  %48 = icmp eq %"struct.Args::Slot"* %47, null
+  br i1 %48, label %.loopexit3, label %35
+
+.loopexit:                                        ; preds = %.preheader, %.loopexit3
+  %49 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 0
+  store i8 0, i8* %49, align 8, !tbaa !20287
+  store i8 0, i8* %32, align 1, !tbaa !20305
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %8) #34
+  %50 = load %class.Element*, %class.Element** %5, align 8, !tbaa !20284
+  %51 = getelementptr inbounds %class.FlowIPLoadBalancerReverse, %class.FlowIPLoadBalancerReverse* %0, i64 0, i32 1
+  %52 = bitcast %class.FlowIPLoadBalancer** %51 to %class.Element**
+  store %class.Element* %50, %class.Element** %52, align 8, !tbaa !22674
+  %53 = getelementptr inbounds %class.Element, %class.Element* %50, i64 0, i32 10
+  %54 = bitcast %class.Element** %4 to i8*
+  call void @llvm.lifetime.start.p0i8(i64 8, i8* nonnull %54)
+  %55 = bitcast %class.Element** %4 to %class.FlowIPLoadBalancerReverse**
+  store %class.FlowIPLoadBalancerReverse* %0, %class.FlowIPLoadBalancerReverse** %55, align 8, !tbaa !20284
+  %56 = getelementptr inbounds %class.Element, %class.Element* %50, i64 0, i32 10, i32 0, i32 1
+  %57 = load i32, i32* %56, align 8, !tbaa !20364
+  %58 = getelementptr inbounds %class.Element, %class.Element* %50, i64 0, i32 10, i32 0, i32 2
+  %59 = load i32, i32* %58, align 4, !tbaa !20368
+  %60 = icmp slt i32 %57, %59
+  br i1 %60, label %83, label %92
+
+.preheader:                                       ; preds = %.preheader, %.loopexit3
+  %61 = phi i32 [ %78, %.preheader ], [ 0, %.loopexit3 ]
+  %62 = zext i32 %61 to i64
+  %63 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %62
+  %64 = load i8, i8* %63, align 1, !tbaa !20287
+  %65 = zext i8 %64 to i32
+  %66 = add nuw nsw i32 %61, 1
+  %67 = zext i32 %66 to i64
+  %68 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %67
+  %69 = add nuw nsw i32 %66, %65
+  %70 = zext i32 %69 to i64
+  %71 = getelementptr inbounds %class.Args, %class.Args* %6, i64 0, i32 7, i64 %70
+  %72 = bitcast i8* %71 to i8**
+  %73 = load i8*, i8** %72, align 8, !tbaa !20284
+  %74 = zext i8 %64 to i64
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %73, i8* nonnull align 1 %68, i64 %74, i1 false)
+  %75 = load i8, i8* %63, align 1, !tbaa !20287
+  %76 = zext i8 %75 to i32
+  %77 = add i32 %61, 9
+  %78 = add i32 %77, %76
+  %79 = load i8, i8* %32, align 1, !tbaa !20305
+  %80 = zext i8 %79 to i32
+  %81 = icmp ult i32 %78, %80
+  br i1 %81, label %.preheader, label %.loopexit
+
+_ZN4Args8completeEv.exit:                         ; preds = %.noexc
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %8) #34
+  br label %96
+
+.loopexit2:                                       ; preds = %35
+  %lpad.loopexit = landingpad { i8*, i32 }
+          cleanup
+  br label %82
+
+.loopexit.split-lp:                               ; preds = %22, %_ZN4ArgsC2ERK6VectorI6StringLm16EEPK7ElementP12ErrorHandler.exit
+  %lpad.loopexit.split-lp = landingpad { i8*, i32 }
+          cleanup
+  br label %82
+
+82:                                               ; preds = %.loopexit.split-lp, %.loopexit2
+  %lpad.phi = phi { i8*, i32 } [ %lpad.loopexit, %.loopexit2 ], [ %lpad.loopexit.split-lp, %.loopexit.split-lp ]
+  call void @_ZN4ArgsD2Ev(%class.Args* nonnull %6) #34
+  call void @llvm.lifetime.end.p0i8(i64 112, i8* nonnull %8) #34
+  call void @llvm.lifetime.end.p0i8(i64 8, i8* nonnull %7) #34
+  resume { i8*, i32 } %lpad.phi
+
+83:                                               ; preds = %.loopexit
+  %84 = ptrtoint %class.FlowIPLoadBalancerReverse* %0 to i64
+  %85 = getelementptr inbounds %class.Vector, %class.Vector* %53, i64 0, i32 0, i32 0
+  %86 = load %struct.char_array*, %struct.char_array** %85, align 8, !tbaa !20288
+  %87 = sext i32 %57 to i64
+  %88 = getelementptr inbounds %struct.char_array, %struct.char_array* %86, i64 %87, i32 0, i64 0
+  %89 = bitcast i8* %88 to i64*
+  store i64 %84, i64* %89, align 1
+  %90 = load i32, i32* %56, align 8, !tbaa !20364
+  %91 = add nsw i32 %90, 1
+  store i32 %91, i32* %56, align 8, !tbaa !20364
+  br label %_ZN7Element18add_remote_elementEPS_.exit
+
+92:                                               ; preds = %.loopexit
+  %93 = bitcast %class.Element** %4 to %struct.char_array*
+  %94 = getelementptr inbounds %class.Vector, %class.Vector* %53, i64 0, i32 0
+  %95 = call zeroext i1 @_ZN13vector_memoryI18sized_array_memoryILm8EELm16EE21reserve_and_push_backEiPK10char_arrayILm8EE(%class.vector_memory* nonnull %94, i32 -1, %struct.char_array* nonnull %93)
+  br label %_ZN7Element18add_remote_elementEPS_.exit
+
+_ZN7Element18add_remote_elementEPS_.exit:         ; preds = %92, %83
+  call void @llvm.lifetime.end.p0i8(i64 8, i8* nonnull %54)
+  br label %96
+
+96:                                               ; preds = %_ZN7Element18add_remote_elementEPS_.exit, %_ZN4Args8completeEv.exit
+  %97 = phi i32 [ 0, %_ZN7Element18add_remote_elementEPS_.exit ], [ -1, %_ZN4Args8completeEv.exit ]
+  call void @llvm.lifetime.end.p0i8(i64 8, i8* nonnull %7) #34
+  ret i32 %97
+}
+
+define dso_local i32 @_ZN25FlowIPLoadBalancerReverse10initializeEP12ErrorHandler(%class.FlowIPLoadBalancerReverse* nocapture readnone %0, %class.ErrorHandler* nocapture readnone %1) unnamed_addr #4 align 2 {
+  ret i32 0
+}
+
+
+
+/***  flowiploadbalancer.cc ***/
+
+/*
+ * flowiploadbalancer.{cc,hh} -- TCP & UDP load-balancer
+ * Tom Barbette
+ *
+ * Copyright (c) 2019-2020 KTH Royal Institute of Technology
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, subject to the conditions
+ * listed in the Click LICENSE file. These conditions include: you must
+ * preserve this copyright notice, and you cannot mention the copyright
+ * holders in advertising related to the Software without their permission.
+ * The Software is provided WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED. This
+ * notice is a summary of the Click LICENSE file; the license in that file is
+ * legally binding.
+ */
+
+#include <click/config.h>
+#include <click/glue.hh>
+#include <click/args.hh>
+#include <clicknet/ip.h>
+#include <clicknet/tcp.h>
+#include <click/flow/flow.hh>
+
+#include "flowiploadbalancer.hh"
+
+
+CLICK_DECLS
+
+FlowIPLoadBalancer::FlowIPLoadBalancer() : _accept_nonsyn(true), _verbose(0)
+{
+}
+
+FlowIPLoadBalancer::~FlowIPLoadBalancer()
+{
+}
+
+int
+FlowIPLoadBalancer::configure(Vector<String> &conf, ErrorHandler *errh)
+{
+    if (Args(this, errh).bind(conf)
+               .read_all("DST",Args::mandatory | Args::positional,DefaultArg<Vector<IPAddress>>(),_dsts)
+               .read_mp("VIP", _vip)
+	       .read("VERBOSE", _verbose)
+	       .read("NONSYN", _accept_nonsyn)
+               .consume() < 0)
+		return -1;
+
+    if (parseLb(conf, this, errh) < 0)
+            return -1;
+
+    if (Args(this, errh).bind(conf).complete() < 0)
+            return -1;
+
+    click_chatter("%p{element} has %d routes",this,_dsts.size());
+
+    return 0;
+}
+
+int FlowIPLoadBalancer::initialize(ErrorHandler *errh)
+{
+    return 0;
+}
+
+
+bool FlowIPLoadBalancer::new_flow(IPLBEntry* flowdata, Packet* p)
+{
+    if (isTCP(p) && !isSyn(p)) {
+	    if(unlikely(_verbose))
+	        click_chatter("Non syn establishment!");
+        if (!_accept_nonsyn)
+            return false;
+    }
+    int server = pick_server(p);
+
+    flowdata->chosen_server = server;
+
+    if(unlikely(_verbose))
+	click_chatter("New flow %d",server);
+
+    return true;
+}
+
+
+void FlowIPLoadBalancer::push_flow(int, IPLBEntry* flowdata, PacketBatch* batch)
+{
+    unsigned b = flowdata->chosen_server;
+    auto fnt = [this,b](Packet*&p) -> bool {
+        WritablePacket* q =p->uniqueify();
+        p = q;
+
+        if(unlikely(_verbose)) {
+            click_chatter("Packet for flow %d", b);
+        }
+        IPAddress srv = _dsts[b];
+
+        q->ip_header()->ip_dst = srv;
+        p->set_dst_ip_anno(srv);
+        track_load(p, b);
+
+
+
+        return true;
+    };
+    EXECUTE_FOR_EACH_PACKET_UNTIL_DROP(fnt, batch);
+
+    if (batch)
+        checked_output_push_batch(0, batch);
+}
+
+#if FLOW_PUSH_BATCH
+void FlowIPLoadBalancer::push_flow_batch(int, IPLBEntry** flowdata, PacketBatch *head)
+{
+    int i = 0;
+    FOR_EACH_PACKET_SAFE(head, p) {
+        unsigned b = flowdata[i]->chosen_server;
+        WritablePacket* q =p->uniqueify();
+        p = q;
+
+        if(unlikely(_verbose)) {
+            click_chatter("Packet for flow %d", b);
+        }
+        IPAddress srv = _dsts[b];
+
+        q->ip_header()->ip_dst = srv;
+        p->set_dst_ip_anno(srv);
+        track_load(p, b);
+    }
+}
+#endif
+
+int
+FlowIPLoadBalancer::handler(int op, String& s, Element* e, const Handler* h, ErrorHandler* errh) {
+    FlowIPLoadBalancer *cs = static_cast<FlowIPLoadBalancer *>(e);
+    return cs->lb_handler(op, s, h->read_user_data(), h->write_user_data(), errh);
+}
+
+int
+FlowIPLoadBalancer::write_handler(
+        const String &input, Element *e, void *thunk, ErrorHandler *errh) {
+	FlowIPLoadBalancer *cs = static_cast<FlowIPLoadBalancer *>(e);
+
+    return cs->lb_write_handler(input,thunk,errh);
+}
+
+String
+FlowIPLoadBalancer::read_handler(Element *e, void *thunk) {
+	FlowIPLoadBalancer *cs = static_cast<FlowIPLoadBalancer *>(e);
+    return cs->lb_read_handler(thunk);
+}
+
+void
+FlowIPLoadBalancer::add_handlers()
+{
+    add_lb_handlers<FlowIPLoadBalancer>(this);
+}
+
+FlowIPLoadBalancerReverse::FlowIPLoadBalancerReverse() : _lb(0)
+{
+}
+
+FlowIPLoadBalancerReverse::~FlowIPLoadBalancerReverse()
+{
+}
+
+int
+FlowIPLoadBalancerReverse::configure(Vector<String> &conf, ErrorHandler *errh)
+{
+    Element* e;
+    if (Args(conf, this, errh)
+       .read_mp("LB",e)
+       .complete() < 0)
+        return -1;
+
+    _lb = reinterpret_cast<FlowIPLoadBalancer*>(e);
+    _lb->add_remote_element(this);
+    return 0;
+}
+
+
+int FlowIPLoadBalancerReverse::initialize(ErrorHandler *errh)
+{
+    return 0;
+}
+
+void FlowIPLoadBalancerReverse::push_batch(int, PacketBatch* batch)
+{
+    auto fnt = [this](Packet* &p) -> bool {
+        WritablePacket* q =p->uniqueify();
+        p = q;
+        q->ip_header()->ip_src = _lb->_vip;
+        return true;
+    };
+
+    EXECUTE_FOR_EACH_PACKET_UNTIL_DROP(fnt, batch);
+
+    if (batch)
+        checked_output_push_batch(0, batch);
+}
+
+CLICK_ENDDECLS
+EXPORT_ELEMENT(FlowIPLoadBalancerReverse)
+ELEMENT_MT_SAFE(FlowIPLoadBalancerReverse)
+EXPORT_ELEMENT(FlowIPLoadBalancer)
+ELEMENT_MT_SAFE(FlowIPLoadBalancer)
+
+

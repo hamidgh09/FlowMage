@@ -1,0 +1,490 @@
+/*** adl.h ***/
+
+
+
+#ifndef __vnet_adl_h__
+#define __vnet_adl_h__
+
+#include <vlib/vlib.h>
+#include <vnet/vnet.h>
+
+#include <vppinfra/error.h>
+#include <vppinfra/hash.h>
+#include <vnet/vnet.h>
+#include <vnet/ip/ip.h>
+#include <vnet/l2/l2_input.h>
+#include <vnet/ethernet/ethernet.h>
+#include <vnet/ip/ip4_packet.h>
+#include <vnet/ip/ip6_packet.h>
+
+typedef enum {
+  VNET_ADL_IP4,
+  VNET_ADL_IP6,
+  VNET_ADL_DEFAULT,
+  VNET_N_ADLS,
+} vnet_adl_t;
+
+typedef enum {
+  
+  IP4_RX_ADL_ALLOWLIST,
+  IP6_RX_ADL_ALLOWLIST,
+  DEFAULT_RX_ADL_ALLOWLIST,
+
+  
+  IP4_RX_ADL_INPUT,
+  IP6_RX_ADL_INPUT,
+  DEFAULT_RX_ADL_INPUT,
+
+  
+  RX_ADL_DROP,
+
+  ADL_RX_N_FEATURES,
+} adl_feature_type_t;
+
+typedef struct {
+  vnet_config_main_t config_main;
+  u32 * config_index_by_sw_if_index;
+} adl_config_main_t;
+
+typedef struct {
+  u32 fib_index;
+} adl_config_data_t;
+
+typedef struct {
+  adl_config_main_t adl_config_mains[VNET_N_ADLS];
+
+  u16 msg_id_base;
+
+  
+  vlib_main_t * vlib_main;
+  vnet_main_t * vnet_main;
+} adl_main_t;
+
+extern adl_main_t adl_main;
+
+extern vlib_node_registration_t adl_input_node;
+
+int adl_interface_enable_disable (u32 sw_if_index, int enable_disable);
+
+typedef struct {
+  u32 sw_if_index;
+  u8 ip4;
+  u8 ip6;
+  u8 default_adl;
+  u32 fib_id;
+} adl_allowlist_enable_disable_args_t;
+
+int adl_allowlist_enable_disable (adl_allowlist_enable_disable_args_t *a);
+
+
+typedef struct {
+    
+    u32 sw_if_index[VLIB_N_RX_TX];
+    i16 l2_hdr_offset;
+    i16 l3_hdr_offset;
+    i16 l4_hdr_offset;
+    u8 feature_arc_index;
+    u8 dont_waste_me;
+    
+    union
+    {
+        
+        struct
+        {
+            
+            u32 current_config_index;
+        } adl;
+    };
+} adl_buffer_opaque_t;
+
+#define adl_buffer(b) ((adl_buffer_opaque_t *) (b)->opaque)
+
+#endif 
+
+
+/*** adl.c ***/
+
+
+#include <vnet/ethernet/ethernet.h>
+#include <vnet/plugin/plugin.h>
+#include <vpp/app/version.h>
+#include <plugins/adl/adl.h>
+
+adl_main_t adl_main;
+
+static clib_error_t *
+adl_sw_interface_add_del (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
+{
+  adl_main_t *am = &adl_main;
+  adl_config_data_t _data, *data = &_data;
+  vlib_main_t *vm = am->vlib_main;
+  vnet_hw_interface_t *hi = vnet_get_sup_hw_interface (vnm, sw_if_index);;
+  adl_config_main_t *acm;
+  int address_family;
+  u32 ci, default_next;
+
+  clib_memset (data, 0, sizeof (*data));
+
+  
+  if (hi->dev_class_index == vnet_local_interface_device_class.index)
+    return 0;
+
+  for (address_family = VNET_ADL_IP4; address_family < VNET_N_ADLS;
+       address_family++)
+    {
+      acm = &am->adl_config_mains[address_family];
+
+      
+
+      if (!(acm->config_main.node_index_by_feature_index))
+	{
+	  switch (address_family)
+	    {
+	    case VNET_ADL_IP4:
+	      {
+		static char *start_nodes[] = {  };
+		static char *feature_nodes[] = {
+		  [IP4_RX_ADL_ALLOWLIST] = ,
+		  [IP4_RX_ADL_INPUT] = ,
+		};
+
+		vnet_config_init (vm, &acm->config_main,
+				  start_nodes, ARRAY_LEN (start_nodes),
+				  feature_nodes, ARRAY_LEN (feature_nodes));
+	      }
+	      break;
+	    case VNET_ADL_IP6:
+	      {
+		static char *start_nodes[] = {  };
+		static char *feature_nodes[] = {
+		  [IP6_RX_ADL_ALLOWLIST] = ,
+		  [IP6_RX_ADL_INPUT] = ,
+		};
+		vnet_config_init (vm, &acm->config_main,
+				  start_nodes, ARRAY_LEN (start_nodes),
+				  feature_nodes, ARRAY_LEN (feature_nodes));
+	      }
+	      break;
+
+	    case VNET_ADL_DEFAULT:
+	      {
+		static char *start_nodes[] = {  };
+		static char *feature_nodes[] = {
+		  [DEFAULT_RX_ADL_ALLOWLIST] = ,
+		  [DEFAULT_RX_ADL_INPUT] = ,
+		};
+		vnet_config_init (vm, &acm->config_main,
+				  start_nodes, ARRAY_LEN (start_nodes),
+				  feature_nodes, ARRAY_LEN (feature_nodes));
+	      }
+	      break;
+
+	    default:
+	      clib_warning ();
+	      break;
+	    }
+	}
+      vec_validate_init_empty (acm->config_index_by_sw_if_index, sw_if_index,
+			       ~0);
+
+      ci = acm->config_index_by_sw_if_index[sw_if_index];
+
+      
+      if (address_family == VNET_ADL_IP4)
+	default_next = IP4_RX_ADL_INPUT;
+      else if (address_family == VNET_ADL_IP6)
+	default_next = IP6_RX_ADL_INPUT;
+      else
+	default_next = DEFAULT_RX_ADL_INPUT;
+
+      if (is_add)
+	ci = vnet_config_add_feature (vm, &acm->config_main,
+				      ci, default_next, data, sizeof (*data));
+      else
+	{
+	  
+	  if (ci != ~0)
+	    {
+	      ci = vnet_config_del_feature (vm, &acm->config_main,
+					    ci, default_next, data,
+					    sizeof (*data));
+	    }
+	}
+
+      acm->config_index_by_sw_if_index[sw_if_index] = ci;
+    }
+  return 0;
+}
+
+VNET_SW_INTERFACE_ADD_DEL_FUNCTION (adl_sw_interface_add_del);
+
+static clib_error_t *
+adl_init (vlib_main_t * vm)
+{
+  adl_main_t *cm = &adl_main;
+
+  cm->vlib_main = vm;
+  cm->vnet_main = vnet_get_main ();
+
+  
+  ethernet_setup_node (vm, adl_input_node.index);
+  return 0;
+}
+
+
+VLIB_INIT_FUNCTION (adl_init) =
+{
+  .runs_after = VLIB_INITS (, ),
+};
+
+
+
+VNET_FEATURE_INIT (adl, static) =
+{
+  .arc_name = ,
+  .node_name = ,
+  .runs_before = VNET_FEATURES (),
+};
+
+
+int adl_interface_enable_disable (u32 sw_if_index, int enable_disable)
+{
+  
+  vnet_feature_enable_disable (, ,
+			       sw_if_index, enable_disable, 0, 0);
+  return 0;
+}
+
+static clib_error_t *
+adl_enable_disable_command_fn (vlib_main_t * vm,
+                                unformat_input_t * input,
+                                vlib_cli_command_t * cmd)
+{
+  adl_main_t * cm = &adl_main;
+  u32 sw_if_index = ~0;
+  int enable_disable = 1;
+
+  int rv;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT) {
+    if (unformat (input, ))
+      enable_disable = 0;
+    else if (unformat (input, , unformat_vnet_sw_interface,
+                       cm->vnet_main, &sw_if_index))
+      ;
+    else
+      break;
+  }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, );
+
+  rv = adl_interface_enable_disable (sw_if_index, enable_disable);
+
+  switch(rv) {
+  case 0:
+    break;
+
+  case VNET_API_ERROR_INVALID_SW_IF_INDEX:
+    return clib_error_return
+      (0, );
+    break;
+
+  case VNET_API_ERROR_UNIMPLEMENTED:
+    return clib_error_return (0, );
+    break;
+
+  default:
+    return clib_error_return (0, ,
+                              rv);
+  }
+  return 0;
+}
+
+VLIB_CLI_COMMAND (adl_interface_command, static) = {
+    .path = ,
+    .short_help =
+    ,
+    .function = adl_enable_disable_command_fn,
+};
+
+
+int adl_allowlist_enable_disable (adl_allowlist_enable_disable_args_t *a)
+{
+  adl_main_t * cm = &adl_main;
+  vlib_main_t * vm = cm->vlib_main;
+  ip4_main_t * im4 = &ip4_main;
+  ip6_main_t * im6 = &ip6_main;
+  int address_family;
+  int is_add;
+  adl_config_main_t * acm;
+  u32 next_to_add_del = 0;
+  uword * p;
+  u32 fib_index = 0;
+  u32 ci;
+  adl_config_data_t _data, *data=&_data;
+
+  
+
+  for (address_family = VNET_ADL_IP4; address_family < VNET_N_ADLS;
+       address_family++)
+    {
+      acm = &cm->adl_config_mains[address_family];
+
+      switch(address_family)
+        {
+        case VNET_ADL_IP4:
+          is_add = (a->ip4 != 0);
+          next_to_add_del = IP4_RX_ADL_ALLOWLIST;
+          
+          p = hash_get (im4->fib_index_by_table_id, a->fib_id);
+          if (p)
+            fib_index = p[0];
+          else
+            {
+              if (is_add)
+                return VNET_API_ERROR_NO_SUCH_FIB;
+              else
+                continue;
+            }
+          break;
+
+        case VNET_ADL_IP6:
+          is_add = (a->ip6 != 0);
+          next_to_add_del = IP6_RX_ADL_ALLOWLIST;
+          p = hash_get (im6->fib_index_by_table_id, a->fib_id);
+          if (p)
+            fib_index = p[0];
+          else
+            {
+              if (is_add)
+                return VNET_API_ERROR_NO_SUCH_FIB;
+              else
+                continue;
+            }
+          break;
+
+        case VNET_ADL_DEFAULT:
+          is_add = (a->default_adl != 0);
+          next_to_add_del = DEFAULT_RX_ADL_ALLOWLIST;
+          break;
+
+        default:
+          clib_warning ();
+        }
+
+      ci = acm->config_index_by_sw_if_index[a->sw_if_index];
+      data->fib_index = fib_index;
+
+      if (is_add)
+	ci = vnet_config_add_feature (vm, &acm->config_main,
+				      ci,
+                                      next_to_add_del,
+                                      data, sizeof (*data));
+      else
+        {
+          
+          if (ci != ~0)
+            {
+              
+              ci = vnet_config_del_feature (vm, &acm->config_main,
+                                            ci,
+                                            next_to_add_del,
+                                            data, sizeof (*data));
+            }
+        }
+
+      acm->config_index_by_sw_if_index[a->sw_if_index] = ci;
+    }
+  return 0;
+}
+
+static clib_error_t *
+adl_allowlist_enable_disable_command_fn (vlib_main_t * vm,
+                                         unformat_input_t * input,
+                                         vlib_cli_command_t * cmd)
+{
+  adl_main_t * cm = &adl_main;
+  u32 sw_if_index = ~0;
+  u8 ip4 = 0;
+  u8 ip6 = 0;
+  u8 default_adl = 0;
+  u32 fib_id = 0;
+  int rv;
+  adl_allowlist_enable_disable_args_t _a, * a = &_a;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT) {
+    if (unformat (input, ))
+      ip4 = 1;
+    else if (unformat (input, ))
+      ip6 = 1;
+    else if (unformat (input, ))
+      default_adl = 1;
+    else if (unformat (input, , unformat_vnet_sw_interface,
+                       cm->vnet_main, &sw_if_index))
+      ;
+    else if (unformat (input, , &fib_id))
+      ;
+    else
+      break;
+  }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, );
+
+  a->sw_if_index = sw_if_index;
+  a->ip4 = ip4;
+  a->ip6 = ip6;
+  a->default_adl = default_adl;
+  a->fib_id = fib_id;
+
+  rv = adl_allowlist_enable_disable (a);
+
+  switch(rv) {
+  case 0:
+    break;
+
+  case VNET_API_ERROR_INVALID_SW_IF_INDEX:
+    return clib_error_return
+      (0, );
+    break;
+
+  case VNET_API_ERROR_NO_SUCH_FIB:
+    return clib_error_return
+      (0, );
+    break;
+
+  case VNET_API_ERROR_UNIMPLEMENTED:
+    return clib_error_return (0, );
+    break;
+
+  default:
+    return clib_error_return (0, ,
+                              rv);
+  }
+
+  return 0;
+}
+
+
+VLIB_CLI_COMMAND (adl_allowlist_command, static) =
+{
+   .path = ,
+   .short_help =
+   ,
+   .function = adl_allowlist_enable_disable_command_fn,
+};
+
+
+
+VLIB_PLUGIN_REGISTER () =
+{
+  .version = VPP_BUILD_VER,
+  .description = ,
+};
+
+
+
+
+
+
