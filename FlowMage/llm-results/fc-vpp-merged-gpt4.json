@@ -1,0 +1,1668 @@
+{
+    "complexity": {
+        "1": {},
+        "2": {},
+        "3": {},
+        "4": {},
+        "5": {}
+    },
+    "CheckIPHeader": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3948,
+                "completion_tokens": 29,
+                "total_cost": 0.040350000000000004
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3948,
+                "completion_tokens": 29,
+                "total_cost": 0.040350000000000004
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3948,
+                "completion_tokens": 29,
+                "total_cost": 0.040350000000000004
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3948,
+                "completion_tokens": 29,
+                "total_cost": 0.040350000000000004
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3948,
+                "completion_tokens": 29,
+                "total_cost": 0.040350000000000004
+            }
+        }
+    },
+    "IPortScanDetector": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 2780,
+                "completion_tokens": 38,
+                "total_cost": 0.028939999999999997
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 2780,
+                "completion_tokens": 38,
+                "total_cost": 0.028939999999999997
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 2780,
+                "completion_tokens": 38,
+                "total_cost": 0.028939999999999997
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 2780,
+                "completion_tokens": 38,
+                "total_cost": 0.028939999999999997
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 2780,
+                "completion_tokens": 38,
+                "total_cost": 0.028939999999999997
+            }
+        }
+    },
+    "IPolicer": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "dst_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2636,
+                "completion_tokens": 38,
+                "total_cost": 0.0275
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "dst_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2636,
+                "completion_tokens": 38,
+                "total_cost": 0.0275
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "dst_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2636,
+                "completion_tokens": 38,
+                "total_cost": 0.0275
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "dst_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2636,
+                "completion_tokens": 38,
+                "total_cost": 0.0275
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "dst_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2636,
+                "completion_tokens": 38,
+                "total_cost": 0.0275
+            }
+        }
+    },
+    "FlowRateLimiter": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        8,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6885,
+                "completion_tokens": 53,
+                "total_cost": 0.07043999999999999
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6885,
+                "completion_tokens": 53,
+                "total_cost": 0.07043999999999999
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        8,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6885,
+                "completion_tokens": 53,
+                "total_cost": 0.07043999999999999
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6885,
+                "completion_tokens": 53,
+                "total_cost": 0.07043999999999999
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6885,
+                "completion_tokens": 53,
+                "total_cost": 0.07043999999999999
+            }
+        }
+    },
+    "AverageCounter": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3545,
+                "completion_tokens": 29,
+                "total_cost": 0.036320000000000005
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3545,
+                "completion_tokens": 29,
+                "total_cost": 0.036320000000000005
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3545,
+                "completion_tokens": 29,
+                "total_cost": 0.036320000000000005
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3545,
+                "completion_tokens": 29,
+                "total_cost": 0.036320000000000005
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 3545,
+                "completion_tokens": 29,
+                "total_cost": 0.036320000000000005
+            }
+        }
+    },
+    "nat64": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": null
+                },
+                "prompt_tokens": 14064,
+                "completion_tokens": 50,
+                "total_cost": 0.14214000000000002
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": null
+                },
+                "prompt_tokens": 14064,
+                "completion_tokens": 50,
+                "total_cost": 0.14214000000000002
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 14064,
+                "completion_tokens": 53,
+                "total_cost": 0.14223000000000002
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": null
+                },
+                "prompt_tokens": 14064,
+                "completion_tokens": 50,
+                "total_cost": 0.14214000000000002
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": null
+                },
+                "prompt_tokens": 14064,
+                "completion_tokens": 50,
+                "total_cost": 0.14214000000000002
+            }
+        }
+    },
+    "BatchStats": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1254,
+                "completion_tokens": 29,
+                "total_cost": 0.01341
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1254,
+                "completion_tokens": 29,
+                "total_cost": 0.01341
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1254,
+                "completion_tokens": 29,
+                "total_cost": 0.01341
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1254,
+                "completion_tokens": 29,
+                "total_cost": 0.01341
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1254,
+                "completion_tokens": 29,
+                "total_cost": 0.01341
+            }
+        }
+    },
+    "EtherEncap": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1775,
+                "completion_tokens": 29,
+                "total_cost": 0.018619999999999998
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1775,
+                "completion_tokens": 29,
+                "total_cost": 0.018619999999999998
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1775,
+                "completion_tokens": 29,
+                "total_cost": 0.018619999999999998
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1775,
+                "completion_tokens": 29,
+                "total_cost": 0.018619999999999998
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1775,
+                "completion_tokens": 29,
+                "total_cost": 0.018619999999999998
+            }
+        }
+    },
+    "ISourceCounter": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2638,
+                "completion_tokens": 38,
+                "total_cost": 0.02752
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2638,
+                "completion_tokens": 38,
+                "total_cost": 0.02752
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2638,
+                "completion_tokens": 38,
+                "total_cost": 0.02752
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2638,
+                "completion_tokens": 38,
+                "total_cost": 0.02752
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 2638,
+                "completion_tokens": 38,
+                "total_cost": 0.02752
+            }
+        }
+    },
+    "EtherMirror": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1168,
+                "completion_tokens": 29,
+                "total_cost": 0.012549999999999999
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1168,
+                "completion_tokens": 29,
+                "total_cost": 0.012549999999999999
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1168,
+                "completion_tokens": 29,
+                "total_cost": 0.012549999999999999
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1168,
+                "completion_tokens": 29,
+                "total_cost": 0.012549999999999999
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "size": null
+                },
+                "prompt_tokens": 1168,
+                "completion_tokens": 29,
+                "total_cost": 0.012549999999999999
+            }
+        }
+    },
+    "FlowHyperScan": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 8496,
+                "completion_tokens": 53,
+                "total_cost": 0.08655
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 8496,
+                "completion_tokens": 53,
+                "total_cost": 0.08655
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 8496,
+                "completion_tokens": 53,
+                "total_cost": 0.08655
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 8496,
+                "completion_tokens": 53,
+                "total_cost": 0.08655
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 8496,
+                "completion_tokens": 53,
+                "total_cost": 0.08655
+            }
+        }
+    },
+    "FlowIPLoadBalancer": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 7980,
+                "completion_tokens": 52,
+                "total_cost": 0.08136000000000002
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 7980,
+                "completion_tokens": 52,
+                "total_cost": 0.08136000000000002
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 7980,
+                "completion_tokens": 52,
+                "total_cost": 0.08136000000000002
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 7980,
+                "completion_tokens": 52,
+                "total_cost": 0.08136000000000002
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 7980,
+                "completion_tokens": 52,
+                "total_cost": 0.08136000000000002
+            }
+        }
+    },
+    "FlowCounter": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6455,
+                "completion_tokens": 53,
+                "total_cost": 0.06613999999999999
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6455,
+                "completion_tokens": 53,
+                "total_cost": 0.06613999999999999
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6455,
+                "completion_tokens": 53,
+                "total_cost": 0.06613999999999999
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6455,
+                "completion_tokens": 53,
+                "total_cost": 0.06613999999999999
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        4,
+                        false
+                    ]
+                },
+                "prompt_tokens": 6455,
+                "completion_tokens": 53,
+                "total_cost": 0.06613999999999999
+            }
+        }
+    },
+    "lb": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 15432,
+                "completion_tokens": 52,
+                "total_cost": 0.15588000000000002
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 15432,
+                "completion_tokens": 53,
+                "total_cost": 0.15591000000000002
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 15432,
+                "completion_tokens": 52,
+                "total_cost": 0.15588000000000002
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        true
+                    ]
+                },
+                "prompt_tokens": 15432,
+                "completion_tokens": 53,
+                "total_cost": 0.15591000000000002
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-packet",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "size": [
+                        null,
+                        false
+                    ]
+                },
+                "prompt_tokens": 15432,
+                "completion_tokens": 53,
+                "total_cost": 0.15591000000000002
+            }
+        }
+    },
+    "adl": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 3430,
+                "completion_tokens": 29,
+                "total_cost": 0.03517000000000001
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 3430,
+                "completion_tokens": 29,
+                "total_cost": 0.03517000000000001
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 3430,
+                "completion_tokens": 29,
+                "total_cost": 0.03517000000000001
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 3430,
+                "completion_tokens": 29,
+                "total_cost": 0.03517000000000001
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 3430,
+                "completion_tokens": 29,
+                "total_cost": 0.03517000000000001
+            }
+        }
+    },
+    "HashSwitch": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1392,
+                "completion_tokens": 29,
+                "total_cost": 0.01479
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1392,
+                "completion_tokens": 29,
+                "total_cost": 0.01479
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1392,
+                "completion_tokens": 29,
+                "total_cost": 0.01479
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1392,
+                "completion_tokens": 29,
+                "total_cost": 0.01479
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1392,
+                "completion_tokens": 29,
+                "total_cost": 0.01479
+            }
+        }
+    },
+    "EnsureEther": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1765,
+                "completion_tokens": 29,
+                "total_cost": 0.01852
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1765,
+                "completion_tokens": 29,
+                "total_cost": 0.01852
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1765,
+                "completion_tokens": 29,
+                "total_cost": 0.01852
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1765,
+                "completion_tokens": 29,
+                "total_cost": 0.01852
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateless",
+                    "intensity": null,
+                    "key": [],
+                    "pointer": false
+                },
+                "prompt_tokens": 1765,
+                "completion_tokens": 29,
+                "total_cost": 0.01852
+            }
+        }
+    },
+    "acl": {
+        "1": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "pointer": true
+                },
+                "prompt_tokens": 31539,
+                "completion_tokens": 49,
+                "total_cost": 0.31686000000000003
+            }
+        },
+        "2": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "pointer": true
+                },
+                "prompt_tokens": 31539,
+                "completion_tokens": 49,
+                "total_cost": 0.31686000000000003
+            }
+        },
+        "3": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "pointer": false
+                },
+                "prompt_tokens": 31539,
+                "completion_tokens": 49,
+                "total_cost": 0.31686000000000003
+            }
+        },
+        "4": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "pointer": true
+                },
+                "prompt_tokens": 31539,
+                "completion_tokens": 49,
+                "total_cost": 0.31686000000000003
+            }
+        },
+        "5": {
+            "merged": {
+                "model_error": null,
+                "result": {
+                    "statefulness": "stateful",
+                    "intensity": "per-flow",
+                    "key": [
+                        "src_ip",
+                        "dst_ip",
+                        "src_port",
+                        "dst_port",
+                        "protocol"
+                    ],
+                    "pointer": true
+                },
+                "prompt_tokens": 31539,
+                "completion_tokens": 49,
+                "total_cost": 0.31686000000000003
+            }
+        }
+    }
+}
