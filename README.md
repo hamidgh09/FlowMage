@@ -56,7 +56,9 @@ Use ``llm-analysis.py`` to extract NF's attirbutes. The script provides a json c
 The solver receives a configuration file as input and provides an optimized version of that without affecting semantics. To do so, you can use ``solver.py`` with the following input parameters:
 
 ``--llm_analysis_path``: Direction to the output json file from the previous step. 
+
 ``--input``: input configuraiton file. 
+
 ``--output``: expected output file.
 
 ## Citing our paper
