@@ -10,9 +10,9 @@ FlowMage is a system that leverages Large Language Models (LLMs) to perform code
 
 FlowMage is framework agnostic by design, however it requires customized functions to (1) find related codes for a network function in a given framework, (2) parse input configuration files, and (3) apply the suggested configurations by writing back the output file with a correct syntax.
 
-For more information check out our paper at EuroMLSys '24.
+For more information check out our [paper][paper] at [EuroMLSys '24][EuroMLSys].
 
-The current version of FlowMage is customized for [Fastclick][Fastclick]
+The current version of FlowMage is customized for [Fastclick][Fastclick].
 
 ## Repository Organization
 
@@ -53,13 +53,18 @@ Use ``llm-analysis.py`` to extract NF's attirbutes. The script provides a json c
 
 ### Running Solver
 
+The solver receives a configuration file as input and provides an optimized version of that without affecting semantics. To do so, you can use ``solver.py`` with the following input parameters:
+
+``--llm_analysis_path``: Direction to the output json file from the previous step. 
+``--input``: input configuraiton file. 
+``--output``: expected output file.
 
 ## Citing our paper
 If you use FlowMage, please cite our paper:
 
 ```bibtex
 @inproceedings{FlowMage,
-author = {Ghasemirahni, Hamid and Farshin, Alireza},
+author = {Ghasemirahni, Hamid and Farshin, Alireza and Scazzariello, Mariano and Chiesa, Marco and Kosti{\'c}, Dejan},
 title = {Deploying Stateful Network Functions Efficiently
 using Large Language Models},
 year = {2024},
@@ -83,3 +88,5 @@ If you have any question regarding the code or the paper you can contact me (ham
 [NPF]: https://github.com/tbarbette/npf
 [FastClick]: https://github.com/tbarbette/fastclick
 [VPP]: https://fd.io/
+[paper]: https://doi.org/10.1145/3642970.3655836
+[EuroMLSys]: https://euromlsys.eu/#about
