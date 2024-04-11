@@ -8,6 +8,7 @@ from typing import Any, List, Optional, Union
 
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.tracers import ConsoleCallbackHandler
+from langchain_core.language_models.base import BaseLanguageModel
 from langchain.chat_models.base import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -113,7 +114,7 @@ def build_llm(model: str) -> BaseChatModel:
         )
 
         class ChatHF(BaseChatModel):
-            model_name: Union[str, None]
+            model_name: str
             max_length: int
             use_quantization: bool
             temperature: float
@@ -122,7 +123,7 @@ def build_llm(model: str) -> BaseChatModel:
 
             def __init__(self, **kwargs: Any) -> None:
                 super().__init__(**kwargs)
-                self.model_name = kwargs.get('model_name', None)
+                self.model_name = kwargs.get('model_name', "")
                 self.max_length = kwargs.get('max_length', 4096)
                 self.use_quantization = kwargs.get('use_quantization', False)
                 self.temperature = kwargs.get('temperature', 0.001)
@@ -233,7 +234,7 @@ def build_llm(model: str) -> BaseChatModel:
         from langchain_community.callbacks import get_openai_callback
 
         return ChatOpenAI(
-            model_name=model_configurations[model]['model_name'],
+            model=model_configurations[model]['model_name'],
             model_kwargs=model_configurations[model]['args'],
             temperature=0.001,
         )
@@ -244,7 +245,7 @@ def build_llm(model: str) -> BaseChatModel:
         import vertexai
 
         vertexai.init(project=PROJECT_ID, location=REGION)
-        return VertexAI(
+        return ChatVertexAI(
             model_name=model_configurations[model]['model_name'],
             convert_system_message_to_human=True,
             temperature=0.001
@@ -427,7 +428,7 @@ def extract_state_size(model: str, name: str, src_file: str, it: int, results: d
                    "Source IP, Destination IP, Source Port, Destination Port, Protocol. "
                    "If the NF stores other types of data, they are not considered as part of a flow."),
         ("human", "Here is the C or C++ code of the network function to analyze:\n{code}"),
-        ("human", "Provide a JSON containing a single key 'size' that contains a boolean to report if the state"
+        ("human", "Provide a JSON containing a single key 'pointer' that contains a boolean to report if the state"
                   " contains pointers (i.e., irregular memories)"
                   " without any additional explanation."
          ),
@@ -592,11 +593,11 @@ def extract_complexity(model: str, pairs: list, it: int, results: dict) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', choices=list(model_configurations.keys()),
-                        default="gpt-4-turbo", required=True)
-    parser.add_argument('--filter', type=str, required=False)
-    parser.add_argument('--iterations', type=int, default=5)
-    parser.add_argument('--source_path', type=str, required=True)
-    parser.add_argument('--results_path', type=str, required=True)
+                        default="gpt-4-turbo", required=False)
+    parser.add_argument('--filter', type=str, required=False, default="IPortScanDetector")
+    parser.add_argument('--iterations', type=int, default=1)
+    parser.add_argument('--source_path', type=str, required=False, default="./extracted_nfs/")
+    parser.add_argument('--results_path', type=str, required=False, default="./llm_results/")
 
     return parser.parse_args()
 
